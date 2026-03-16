@@ -18,14 +18,15 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
+    const path = window.location.pathname;
     if (err.response?.status === 401) {
       localStorage.removeItem('authToken');
       localStorage.removeItem('user');
-      if (window.location.pathname !== '/login') window.location.href = '/login';
-    }
-    if (err.response?.status === 403) {
-      // Có thể redirect hoặc hiển thị "Không có quyền"
-      if (window.location.pathname !== '/login') window.location.href = '/';
+      if (path !== '/login') window.location.href = '/login';
+    } else if (err.response?.status === 403) {
+      // Không redirect khi đang ở trang chủ, login, hoặc quản lý báo cáo (để trang tự hiển thị lỗi 403)
+      const noRedirectPaths = ['/', '/login', '/quan-ly-bao-cao'];
+      if (!noRedirectPaths.includes(path)) window.location.href = '/';
     }
     return Promise.reject(err);
   }
@@ -56,9 +57,14 @@ export const logout = async () => {
   localStorage.removeItem('user');
 };
 
+/**
+ * Danh sách users (chỉ Admin). GET /api/auth/users?limit=&offset=
+ * limit mặc định 100, tối đa 500.
+ */
 export const getUsers = async (limit = 100, offset = 0) => {
+  const capped = Math.min(Math.max(Number(limit) || 100, 1), 500);
   const { data } = await apiClient.get(
-    `${API_ENDPOINTS.AUTH_USERS}?limit=${limit}&offset=${offset}`
+    `${API_ENDPOINTS.AUTH_USERS}?limit=${capped}&offset=${offset}`
   );
   return data;
 };
@@ -110,7 +116,26 @@ export const fetchPendingReports = async (limit = 50) => {
 };
 
 /**
- * Danh sách tất cả báo cáo (Admin/Mod). GET /api/crowd-reports
+ * Tất cả báo cáo trong hệ thống (Admin/Moderator). authenticate + requireAdminOrModerator.
+ * GET /api/reports/all?limit=500&moderation_status=pending|approved|rejected
+ * @param {Object} params
+ * @param {number} [params.limit] - mặc định 500, tối đa 2000
+ * @param {string} [params.moderation_status] - 'pending' | 'approved' | 'rejected'
+ */
+export const getReportsAll = async (params = {}) => {
+  try {
+    const limit = Math.min(Math.max(Number(params.limit) || 500, 1), 2000);
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (params.moderation_status) q.set('moderation_status', params.moderation_status);
+    const { data } = await apiClient.get(`${API_ENDPOINTS.REPORTS_ALL}?${q.toString()}`);
+    return data?.success ? { success: true, data: data.data || [] } : { success: false, data: [] };
+  } catch (err) {
+    return { success: false, data: [], error: err.response?.data?.error || err.message };
+  }
+};
+
+/**
+ * Danh sách tất cả báo cáo (Admin/Mod). GET /api/crowd-reports (fallback nếu BE chưa có /api/reports/all)
  * @param {number} limit
  * @param {number} offset
  * @param {string} [status] - 'pending' | 'approved' | 'rejected' (tùy chọn, một số BE hỗ trợ)
@@ -133,12 +158,19 @@ export const moderateReport = async (reportId, action, rejectionReason = null) =
 };
 
 /**
- * Lấy danh sách sensor kèm mực nước realtime (BE: GET /api/v1/flood-data/realtime).
- * Trả về: sensor_id, location_name, water_level, status, last_data_time, ...
+ * Lấy danh sách sensor realtime (mực nước, nhiệt độ, độ ẩm DHT22).
+ * GET /api/flood-data/realtime — không cần auth. Query tùy chọn: sensor_id, status, min_water_level, max_water_level.
  */
-export const fetchSensors = async () => {
+export const fetchSensors = async (params = {}) => {
   try {
-    const { data } = await apiClient.get(API_ENDPOINTS.FLOOD_DATA_REALTIME);
+    const q = new URLSearchParams();
+    if (params.sensor_id) q.set('sensor_id', params.sensor_id);
+    if (params.status) q.set('status', params.status);
+    if (params.min_water_level != null) q.set('min_water_level', String(params.min_water_level));
+    if (params.max_water_level != null) q.set('max_water_level', String(params.max_water_level));
+    const query = q.toString();
+    const url = query ? `${API_ENDPOINTS.FLOOD_DATA_REALTIME}?${query}` : API_ENDPOINTS.FLOOD_DATA_REALTIME;
+    const { data } = await apiClient.get(url);
     if (data?.success && Array.isArray(data.data)) {
       return { success: true, data: data.data };
     }
@@ -150,7 +182,7 @@ export const fetchSensors = async () => {
 
 /**
  * Lấy lịch sử mực nước theo sensor (BE: GET /api/sensors/:sensorId/history).
- * Trả về: [{ water_level, created_at, status, ... }]
+ * Trả về: [{ water_level, created_at, status, temperature, humidity, ... }]
  */
 export const fetchSensorReadings = async (sensorId, limit = 24) => {
   try {
@@ -178,7 +210,14 @@ export const getReportStats = async (params = {}) => {
     }
     return { success: false, data: null };
   } catch (err) {
-    return { success: false, data: null, error: err.response?.data?.error || err.message };
+    const status = err.response?.status;
+    const error = err.response?.data?.error || err.message;
+    return {
+      success: false,
+      data: null,
+      error,
+      status,
+    };
   }
 };
 
@@ -197,4 +236,94 @@ export const getAuditLogs = async (params = {}) => {
   } catch (err) {
     return { success: false, data: [], error: err.response?.data?.error || err.message };
   }
+};
+
+/**
+ * Danh sách sensors. GET /api/sensors
+ * Query tùy chọn: is_active, status, hardware_type. Chuẩn hóa nhiều dạng response BE (data / sensors / array).
+ */
+export const getSensorsList = async (params = {}) => {
+  try {
+    const q = new URLSearchParams();
+    if (params.is_active != null) q.set('is_active', String(params.is_active));
+    if (params.status) q.set('status', params.status);
+    if (params.hardware_type) q.set('hardware_type', params.hardware_type);
+    const query = q.toString();
+    const url = query ? `${API_ENDPOINTS.SENSORS}?${query}` : API_ENDPOINTS.SENSORS;
+    const { data } = await apiClient.get(url);
+    let list = [];
+    if (data?.success && Array.isArray(data.data)) list = data.data;
+    else if (Array.isArray(data?.sensors)) list = data.sensors;
+    else if (Array.isArray(data?.data)) list = data.data;
+    else if (Array.isArray(data)) list = data;
+    // Chuẩn hóa sensor_id nếu BE trả id
+    list = list.map((s) => (s.sensor_id != null ? s : { ...s, sensor_id: s.id }));
+    return { success: true, data: list };
+  } catch (err) {
+    return { success: false, data: [], error: err.response?.data?.error || err.response?.data?.message || err.message };
+  }
+};
+
+/**
+ * Lấy một sensor theo ID. GET /api/sensors/:sensorId
+ */
+export const getSensorById = async (sensorId) => {
+  try {
+    const url = API_ENDPOINTS.SENSOR_BY_ID.replace(':sensorId', sensorId);
+    const { data } = await apiClient.get(url);
+    if (data?.success && data.data) {
+      return { success: true, data: data.data };
+    }
+    return { success: false, data: null, error: data?.error };
+  } catch (err) {
+    return { success: false, data: null, error: err.response?.data?.error || err.message };
+  }
+};
+
+/**
+ * Cập nhật thông tin sensor. PUT /api/sensors/:sensorId (Admin).
+ * Body chỉ gửi field cần sửa: location_name, lng, lat, installation_height, hardware_type, model, installation_date, is_active.
+ */
+export const updateSensor = async (sensorId, payload) => {
+  const url = API_ENDPOINTS.SENSOR_BY_ID.replace(':sensorId', sensorId);
+  const { data } = await apiClient.put(url, payload);
+  return data;
+};
+
+/**
+ * Cập nhật ngưỡng báo động. PUT /api/sensors/:sensorId/thresholds (Admin).
+ * Body: warning_threshold, danger_threshold, updated_by. Ràng buộc: warning_threshold < danger_threshold.
+ */
+export const updateSensorThresholds = async (sensorId, payload) => {
+  const url = API_ENDPOINTS.SENSOR_THRESHOLDS.replace(':sensorId', sensorId);
+  const { data } = await apiClient.put(url, payload);
+  return data;
+};
+
+/**
+ * Tạo sensor mới. POST /api/sensors (Admin).
+ * Bắt buộc: sensor_id, location_name, lng, lat, installation_height.
+ * Tùy chọn: hardware_type, model, installation_date, warning_threshold, danger_threshold.
+ */
+export const createSensor = async (payload) => {
+  const { data } = await apiClient.post(API_ENDPOINTS.SENSORS, payload);
+  return data;
+};
+
+/**
+ * Xóa sensor. DELETE /api/sensors/:sensorId (Admin).
+ */
+export const deleteSensor = async (sensorId) => {
+  const url = API_ENDPOINTS.SENSOR_BY_ID.replace(':sensorId', sensorId);
+  const { data } = await apiClient.delete(url);
+  return data;
+};
+
+/**
+ * Hiệu chuẩn sensor. POST /api/sensors/:sensorId/calibrate (Admin). Token gửi trong header.
+ */
+export const calibrateSensor = async (sensorId) => {
+  const url = API_ENDPOINTS.SENSOR_CALIBRATE.replace(':sensorId', sensorId);
+  const { data } = await apiClient.post(url);
+  return data;
 };

@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { ChevronDown } from 'lucide-react';
 import { getReportStats } from '../services/api';
 import { FaChartColumn, FaArrowsRotate } from 'react-icons/fa6';
+import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
 
 export default function ReportStatsPage() {
   const [series, setSeries] = useState([]);
@@ -34,63 +36,70 @@ export default function ReportStatsPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-slate-800">Thống kê báo cáo</h1>
+        <h1 className="text-2xl font-semibold text-zinc-100">Thống kê báo cáo</h1>
         <div className="flex flex-wrap items-center gap-3">
-          <select
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
-          >
-            <option value="hour">Theo giờ</option>
-            <option value="day">Theo ngày</option>
-          </select>
+          <Menu>
+            <MenuTrigger
+              render={
+                <button type="button" className="flex items-center gap-2 rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-500">
+                  {groupBy === 'hour' ? 'Theo giờ' : 'Theo ngày'}
+                  <ChevronDown className="h-4 w-4 text-zinc-400" />
+                </button>
+              }
+            />
+            <MenuPanel className="min-w-[10rem]" align="end" sideOffset={4}>
+              <MenuItem onSelect={() => setGroupBy('hour')}>Theo giờ</MenuItem>
+              <MenuItem onSelect={() => setGroupBy('day')}>Theo ngày</MenuItem>
+            </MenuPanel>
+          </Menu>
           <input
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100"
             placeholder="Từ"
           />
           <input
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100"
             placeholder="Đến"
           />
           <button
             type="button"
             onClick={load}
             disabled={loading}
-            className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-xl border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-white/10 disabled:opacity-50"
           >
             <FaArrowsRotate /> Làm mới
           </button>
         </div>
       </div>
       {error && (
-        <div className="mb-4 rounded-lg bg-red-100 px-4 py-2 text-sm text-red-800">{error}</div>
+        <div className="mb-4 rounded-lg bg-red-500/20 border border-red-500/40 px-4 py-2 text-sm text-red-200">{error}</div>
       )}
       {loading ? (
-        <p className="text-slate-500">Đang tải...</p>
+        <p className="text-zinc-400">Đang tải...</p>
       ) : series.length === 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-slate-500">
-          <FaChartColumn className="mx-auto mb-2 h-10 w-10 text-slate-400" />
+        <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-12 text-center text-zinc-400">
+          <FaChartColumn className="mx-auto mb-2 h-10 w-10 text-zinc-500" />
           <p className="font-medium">Chưa có dữ liệu thống kê</p>
           <p className="text-sm">Thử đổi khoảng thời gian hoặc groupBy (giờ/ngày).</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
           <ResponsiveContainer width="100%" height={360}>
             <BarChart data={series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#52525b" />
+              <XAxis dataKey="period" tick={{ fontSize: 12, fill: '#a1a1aa' }} />
+              <YAxis tick={{ fontSize: 12, fill: '#a1a1aa' }} />
               <Tooltip
+                contentStyle={{ borderRadius: 8, border: '1px solid #404040', backgroundColor: '#27272a', color: '#f4f4f5' }}
                 formatter={(value) => [value, 'Số báo cáo']}
                 labelFormatter={(label) => `Kỳ: ${label}`}
               />
-              <Bar dataKey="count" fill="#3b82f6" name="Số báo cáo" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" fill="#8b5cf6" name="Số báo cáo" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

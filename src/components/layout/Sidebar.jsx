@@ -1,22 +1,41 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { FaHouse, FaUsers, FaMagnifyingGlass, FaRightFromBracket, FaStar, FaChartColumn, FaClipboardList } from 'react-icons/fa6';
-import { getCurrentUser, isAdmin } from '../../utils/auth';
+import {
+  Home,
+  List,
+  Search,
+  BarChart3,
+  Star,
+  Users,
+  Gauge,
+  ClipboardList,
+  Settings,
+  LogOut,
+} from 'lucide-react';
+import { AnimateIcon } from '../ui/AnimateIcon';
+import { MotionButton } from '../ui/MotionButton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip';
+import { useSidebar } from './SidebarContext';
+import { getCurrentUser, isAdmin, isModerator } from '../../utils/auth';
 import { logout } from '../../services/api';
 
 const navItems = [
-  { path: '/', label: 'Tổng quan', icon: FaHouse },
-  { path: '/moderation', label: 'Kiểm duyệt báo cáo', icon: FaMagnifyingGlass },
-  { path: '/report-stats', label: 'Thống kê báo cáo', icon: FaChartColumn },
-  { path: '/reliability-ranking', label: 'Xếp hạng tin cậy', icon: FaStar },
-  { path: '/users', label: 'Quản lý user', icon: FaUsers, adminOnly: true },
-  { path: '/audit', label: 'Nhật ký hệ thống', icon: FaClipboardList, adminOnly: true },
+  { path: '/', label: 'Tổng quan', icon: Home },
+  { path: '/quan-ly-bao-cao', label: 'Quản lý báo cáo', icon: List, adminOnly: true },
+  { path: '/moderation', label: 'Kiểm duyệt báo cáo', icon: Search, moderatorOnly: true },
+  { path: '/report-stats', label: 'Thống kê báo cáo', icon: BarChart3, moderatorOnly: true },
+  { path: '/reliability-ranking', label: 'Xếp hạng tin cậy', icon: Star, moderatorOnly: true },
+  { path: '/users', label: 'Quản lý user', icon: Users, adminOnly: true },
+  { path: '/sensors', label: 'Quản lý Sensors', icon: Gauge, adminOnly: true },
+  { path: '/audit', label: 'Nhật ký hệ thống', icon: ClipboardList, adminOnly: true },
+  { path: '/settings', label: 'Cài đặt hệ thống', icon: Settings, adminOnly: true },
 ];
 
 export default function Sidebar() {
   const navigate = useNavigate();
-  const user = getCurrentUser();
+  const { collapsed } = useSidebar();
   const admin = isAdmin();
+  const moderator = isModerator();
 
   const handleLogout = async () => {
     await logout();
@@ -24,41 +43,80 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 z-20 w-56 flex flex-col bg-slate-800 text-white">
-      <div className="p-4 border-b border-slate-700">
-        <h1 className="font-semibold text-sm">FLOODSIGHT Admin</h1>
-        {user && (
-          <p className="text-xs text-slate-400 mt-1">
-            {user.full_name || user.username} · {user.role === 'admin' ? 'Admin' : 'Điều hành'}
-          </p>
+    <aside
+      className={`fixed left-0 top-0 bottom-0 z-20 flex flex-col bg-dashboard-sidebar border-r border-dashboard-border transition-[width] duration-200 ease-out ${
+        collapsed ? 'w-16' : 'w-56'
+      }`}
+    >
+      <div className={`flex shrink-0 flex-col border-b border-dashboard-border ${collapsed ? 'items-center justify-center p-3' : 'p-4'}`}>
+        {collapsed ? (
+          <span className="text-xs font-bold text-white" title="FLOODSIGHT Admin">F</span>
+        ) : (
+          <>
+            <span className="text-sm font-semibold text-white">FLOODSIGHT Admin</span>
+            <p className="mt-1 text-xs text-zinc-500">Dashboards / Default</p>
+          </>
         )}
       </div>
-      <nav className="flex-1 p-2">
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-0.5">
         {navItems.map((item) => {
           if (item.adminOnly && !admin) return null;
-          return (
+          if (item.moderatorOnly && !moderator) return null;
+          const Icon = item.icon;
+          const link = (
             <NavLink
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
-                `flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${isActive ? 'bg-slate-600' : 'hover:bg-slate-700'}`
+                `flex items-center gap-2.5 rounded-lg text-sm transition-colors ${
+                  collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+                } ${isActive ? 'bg-zinc-600 text-white' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'}`
               }
             >
-              <item.icon className="w-4 h-4" />
-              {item.label}
+              <AnimateIcon size={18} className="shrink-0">
+                <Icon className="w-4 h-4" size={18} />
+              </AnimateIcon>
+              {!collapsed && <span className="truncate">{item.label}</span>}
             </NavLink>
+          );
+          return collapsed ? (
+            <Tooltip key={item.path} side="right" sideOffset={6}>
+              <TooltipTrigger>{link}</TooltipTrigger>
+              <TooltipContent><p>{item.label}</p></TooltipContent>
+            </Tooltip>
+          ) : (
+            link
           );
         })}
       </nav>
-      <div className="p-2 border-t border-slate-700">
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm hover:bg-slate-700"
-        >
-          <FaRightFromBracket className="w-4 h-4" />
-          Đăng xuất
-        </button>
+      <div className={`shrink-0 border-t border-dashboard-border ${collapsed ? 'p-2' : 'p-3'}`}>
+        {collapsed ? (
+          <Tooltip side="right" sideOffset={6}>
+            <TooltipTrigger>
+              <MotionButton
+                type="button"
+                onClick={handleLogout}
+                className="flex w-full items-center justify-center rounded-lg px-2 py-2.5 text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
+              >
+                <AnimateIcon size={18} className="shrink-0">
+                  <LogOut className="w-4 h-4" size={18} />
+                </AnimateIcon>
+              </MotionButton>
+            </TooltipTrigger>
+            <TooltipContent><p>Đăng xuất</p></TooltipContent>
+          </Tooltip>
+        ) : (
+          <MotionButton
+            type="button"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors"
+          >
+            <AnimateIcon size={18} className="shrink-0">
+              <LogOut className="w-4 h-4" size={18} />
+            </AnimateIcon>
+            <span className="truncate">Đăng xuất</span>
+          </MotionButton>
+        )}
       </div>
     </aside>
   );

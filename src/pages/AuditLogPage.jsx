@@ -37,77 +37,77 @@ export default function AuditLogPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-slate-800">Nhật ký hệ thống</h1>
+        <h1 className="text-2xl font-semibold text-zinc-100">Nhật ký hệ thống</h1>
         <div className="flex flex-wrap items-center gap-3">
           <input
             type="datetime-local"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100"
           />
           <input
             type="datetime-local"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100"
           />
           <input
             type="text"
             value={actionFilter}
             onChange={(e) => setActionFilter(e.target.value)}
-            placeholder="Lọc action"
-            className="w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Lọc thao tác"
+            className="w-32 rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500"
           />
           <input
             type="text"
             value={entityFilter}
             onChange={(e) => setEntityFilter(e.target.value)}
-            placeholder="Lọc entity"
-            className="w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Lọc đối tượng"
+            className="w-32 rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500"
           />
           <button
             type="button"
             onClick={load}
             disabled={loading}
-            className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-xl border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-white/10 disabled:opacity-50"
           >
             <FaArrowsRotate /> Làm mới
           </button>
         </div>
       </div>
       {error && (
-        <div className="mb-4 rounded-lg bg-red-100 px-4 py-2 text-sm text-red-800">{error}</div>
+        <div className="mb-4 rounded-lg bg-red-500/20 border border-red-500/40 px-4 py-2 text-sm text-red-200">{error}</div>
       )}
       {loading ? (
-        <p className="text-slate-500">Đang tải...</p>
+        <p className="text-zinc-400">Đang tải...</p>
       ) : logs.length === 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-slate-500">
-          <FaClipboardList className="mx-auto mb-2 h-10 w-10 text-slate-400" />
+        <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-12 text-center text-zinc-400">
+          <FaClipboardList className="mx-auto mb-2 h-10 w-10 text-zinc-500" />
           <p className="font-medium">Chưa có bản ghi nhật ký</p>
           <p className="text-sm">Các thao tác xóa dữ liệu, đổi cấu hình sensor, đổi role, khóa user sẽ được ghi tại đây.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-xl border border-dashboard-border bg-dashboard-card">
           <table className="min-w-full text-left text-sm">
-            <thead className="border-b bg-slate-50 text-slate-600">
+            <thead className="border-b border-dashboard-border bg-dashboard-surface text-zinc-400">
               <tr>
                 <th className="px-4 py-3 font-medium">Thời gian</th>
-                <th className="px-4 py-3 font-medium">User</th>
-                <th className="px-4 py-3 font-medium">Action</th>
-                <th className="px-4 py-3 font-medium">Entity</th>
+                <th className="px-4 py-3 font-medium">Người dùng</th>
+                <th className="px-4 py-3 font-medium">Thao tác</th>
+                <th className="px-4 py-3 font-medium">Đối tượng</th>
                 <th className="px-4 py-3 font-medium">Chi tiết</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-dashboard-border">
               {logs.map((log, i) => (
-                <tr key={log.id || i} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 text-slate-600">
+                <tr key={log.id || i} className="hover:bg-white/5">
+                  <td className="px-4 py-3 text-zinc-400">
                     {log.created_at ? new Date(log.created_at).toLocaleString('vi-VN') : '—'}
                   </td>
-                  <td className="px-4 py-3">{log.user_id ?? '—'}</td>
-                  <td className="px-4 py-3 font-medium">{log.action ?? '—'}</td>
-                  <td className="px-4 py-3">{log.entity_type ?? '—'} {log.entity_id ? `#${log.entity_id}` : ''}</td>
-                  <td className="px-4 py-3 text-slate-600 max-w-xs truncate">
+                  <td className="px-4 py-3 text-zinc-300">{log.user_id ?? '—'}</td>
+                  <td className="px-4 py-3 font-medium text-zinc-200">{log.action ?? '—'}</td>
+                  <td className="px-4 py-3 text-zinc-300">{log.entity_type ?? '—'} {log.entity_id ? `#${log.entity_id}` : ''}</td>
+                  <td className="px-4 py-3 text-zinc-400 max-w-xs truncate">
                     {typeof log.details === 'object' ? JSON.stringify(log.details) : log.details ?? '—'}
                   </td>
                 </tr>
