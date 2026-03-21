@@ -59,10 +59,10 @@ npm install
 Tạo file `.env` tại thư mục gốc (tham khảo `.env.example`):
 
 ```env
-VITE_API_BASE_URL=http://localhost:3000
+VITE_API_BASE_URL=https://kltn-007-floodwatch-be-production.up.railway.app
 ```
 
-Với production, thay bằng URL API thật (vd: `https://api.hcmflood.vn`).
+Nếu bạn chạy backend local, có thể đổi lại thành URL local tương ứng.
 
 ### 3. Chạy development
 

@@ -1,9 +1,32 @@
+const STORAGE = {
+  ACCESS: 'authToken',
+  REFRESH: 'refreshToken',
+  SESSION: 'sessionToken',
+  USER: 'user',
+};
+
+/** Ghi đè access (JWT), refresh (opaque) và session (UUID) sau login/register/refresh thành công. */
+export const persistAuthTokens = (payload) => {
+  if (!payload || typeof payload !== 'object') return;
+  const access = payload.access_token || payload.token;
+  if (access) localStorage.setItem(STORAGE.ACCESS, access);
+  if (payload.refresh_token) localStorage.setItem(STORAGE.REFRESH, payload.refresh_token);
+  if (payload.session_token) localStorage.setItem(STORAGE.SESSION, payload.session_token);
+};
+
+export const clearAuthStorage = () => {
+  localStorage.removeItem(STORAGE.ACCESS);
+  localStorage.removeItem(STORAGE.REFRESH);
+  localStorage.removeItem(STORAGE.SESSION);
+  localStorage.removeItem(STORAGE.USER);
+};
+
 export const getCurrentUser = () => {
-  const userStr = localStorage.getItem('user');
+  const userStr = localStorage.getItem(STORAGE.USER);
   return userStr ? JSON.parse(userStr) : null;
 };
 
-export const getToken = () => localStorage.getItem('authToken');
+export const getToken = () => localStorage.getItem(STORAGE.ACCESS);
 
 export const isAuthenticated = () => !!getToken();
 

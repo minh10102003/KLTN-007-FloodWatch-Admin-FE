@@ -40,6 +40,89 @@ function getReportContent(report) {
   return typeof text === 'string' ? text.trim() : '';
 }
 
+function normalizeForSearch(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function levenshteinDistance(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+
+  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return dp[m][n];
+}
+
+function isFuzzyTokenMatch(queryToken, targetToken) {
+  if (!queryToken || !targetToken) return false;
+  if (targetToken.includes(queryToken) || queryToken.includes(targetToken)) return true;
+
+  // Cho phép sai nhẹ 1 ký tự với từ ngắn, 2 ký tự với từ dài hơn
+  const allowedDistance = queryToken.length >= 8 ? 2 : 1;
+  return levenshteinDistance(queryToken, targetToken) <= allowedDistance;
+}
+
+function smartIncludesQuery(query, values) {
+  const queryTokens = normalizeForSearch(query).split(/\s+/).filter(Boolean);
+  if (queryTokens.length === 0) return true;
+
+  const targetText = values.map(normalizeForSearch).join(' ');
+  if (targetText.includes(queryTokens.join(' '))) return true;
+
+  const targetTokens = targetText.split(/\s+/).filter(Boolean);
+  return queryTokens.every((qToken) => targetTokens.some((tToken) => isFuzzyTokenMatch(qToken, tToken)));
+}
+
+function getSearchableValuesFromReport(report) {
+  const values = [];
+
+  const shouldKeepKey = (key) =>
+    /(id|location|address|area|district|ward|street|name|desc|content|note|lat|lng|flood|sensor)/i.test(key);
+
+  const walk = (node, depth = 0, parentKey = '') => {
+    if (node == null || depth > 3) return;
+
+    if (typeof node === 'string' || typeof node === 'number') {
+      values.push(node);
+      return;
+    }
+
+    if (Array.isArray(node)) {
+      node.slice(0, 20).forEach((item) => walk(item, depth + 1, parentKey));
+      return;
+    }
+
+    if (typeof node === 'object') {
+      Object.entries(node).forEach(([key, value]) => {
+        if (depth === 0 || shouldKeepKey(key) || shouldKeepKey(parentKey)) {
+          walk(value, depth + 1, key);
+        }
+      });
+    }
+  };
+
+  walk(report);
+  return values;
+}
+
 /** Hook: địa chỉ hiển thị (geocode từ tọa độ nếu cần) */
 function useGeocodedAddress(report) {
   const [geocoded, setGeocoded] = useState(null);
@@ -288,6 +371,7 @@ export default function ModerationPage() {
   const [dragOverLeft, setDragOverLeft] = useState(false);
   const [draggingId, setDraggingId] = useState(null);
   const [detailReport, setDetailReport] = useState(null);
+  const [geocodedSearchMap, setGeocodedSearchMap] = useState({});
 
   const loadReports = useCallback(async () => {
     setLoading(true);
@@ -300,6 +384,26 @@ export default function ModerationPage() {
   useEffect(() => {
     loadReports();
   }, [loadReports]);
+
+  useEffect(() => {
+    let cancelled = false;
+    reports.forEach((report) => {
+      const desc = report?.location_description?.trim();
+      const hasCoords = report?.lat != null && report?.lng != null;
+      const needsGeocode = hasCoords && (!desc || /^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$/.test(desc));
+      if (!needsGeocode || geocodedSearchMap[report.id]) return;
+      reverseGeocode(report.lat, report.lng).then((addr) => {
+        if (!addr || cancelled) return;
+        setGeocodedSearchMap((prev) => {
+          if (prev[report.id]) return prev;
+          return { ...prev, [report.id]: addr };
+        });
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [reports, geocodedSearchMap]);
 
   const handleApprove = useCallback(async (reportId) => {
     setProcessing(reportId);
@@ -345,12 +449,15 @@ export default function ModerationPage() {
       let out = [...list];
       if (filterLevel !== 'Tất cả') out = out.filter((r) => (r.flood_level || '') === filterLevel);
       if (searchText.trim()) {
-        const q = searchText.trim().toLowerCase();
         out = out.filter(
-          (r) =>
-            (r.location_description || '').toLowerCase().includes(q) ||
-            (r.id?.toString() || '').includes(q) ||
-            getReportContent(r).toLowerCase().includes(q)
+          (r) => {
+            const searchableValues = [
+              ...getSearchableValuesFromReport(r),
+              geocodedSearchMap[r.id],
+              getReportContent(r),
+            ];
+            return smartIncludesQuery(searchText, searchableValues);
+          }
         );
       }
       out.sort((a, b) => {
@@ -365,7 +472,7 @@ export default function ModerationPage() {
       });
       return out;
     },
-    [filterLevel, searchText, sortBy]
+    [filterLevel, searchText, sortBy, geocodedSearchMap]
   );
 
   const pendingReports = useMemo(() => {
@@ -490,7 +597,7 @@ export default function ModerationPage() {
       <div className="flex gap-4 flex-col lg:flex-row">
         {/* Ô trái lớn: Báo cáo đã xử lý — drop card từ phải vào đây = duyệt */}
         <div
-          className={`flex-1 min-h-[400px] rounded-xl border-2 border-dashed transition-colors ${
+          className={`flex-1 min-h-[400px] rounded-xl border-2 transition-colors ${
             dragOverLeft ? 'border-green-500 bg-green-900/20' : 'border-dashboard-border bg-dashboard-card'
           }`}
           onDragOver={handleDragOverLeft}

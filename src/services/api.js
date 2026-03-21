@@ -1,10 +1,47 @@
 import axios from 'axios';
 import { API_CONFIG, API_ENDPOINTS } from '../config/apiConfig';
+import { clearAuthStorage, persistAuthTokens } from '../utils/auth';
 
 const apiClient = axios.create({
   baseURL: API_CONFIG.BASE_URL,
   timeout: API_CONFIG.TIMEOUT,
 });
+
+/** Chỉ một luồng refresh; các request 401 khác chờ cùng promise. */
+let refreshPromise = null;
+
+const isLoginOrRefreshUrl = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  return url.includes(API_ENDPOINTS.AUTH_LOGIN) || url.includes(API_ENDPOINTS.AUTH_REFRESH);
+};
+
+/**
+ * POST /api/auth/refresh — không gửi Bearer; dùng axios thuần để tránh vòng interceptor.
+ * Trả về access JWT mới hoặc null nếu 401 / payload không hợp lệ.
+ */
+const refreshAccessToken = async () => {
+  const refresh_token = localStorage.getItem('refreshToken');
+  const session_token = localStorage.getItem('sessionToken');
+  if (!refresh_token || !session_token) return null;
+  try {
+    const { data } = await axios.post(
+      `${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH_REFRESH}`,
+      { refresh_token, session_token },
+      {
+        timeout: API_CONFIG.TIMEOUT,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+    if (data?.success && data.data) {
+      persistAuthTokens(data.data);
+      return data.data.access_token || data.data.token || null;
+    }
+    return null;
+  } catch (e) {
+    if (e.response?.status === 401) return null;
+    throw e;
+  }
+};
 
 apiClient.interceptors.request.use(
   (config) => {
@@ -17,14 +54,56 @@ apiClient.interceptors.request.use(
 
 apiClient.interceptors.response.use(
   (res) => res,
-  (err) => {
+  async (err) => {
     const path = window.location.pathname;
-    if (err.response?.status === 401) {
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('user');
-      if (path !== '/login') window.location.href = '/login';
-    } else if (err.response?.status === 403) {
-      // Không redirect khi đang ở trang chủ, login, hoặc quản lý báo cáo (để trang tự hiển thị lỗi 403)
+    const status = err.response?.status;
+    const originalRequest = err.config;
+
+    if (status === 401 && originalRequest) {
+      const reqUrl = originalRequest.url || '';
+
+      if (isLoginOrRefreshUrl(reqUrl)) {
+        if (reqUrl.includes(API_ENDPOINTS.AUTH_REFRESH)) {
+          clearAuthStorage();
+          if (path !== '/login') window.location.href = '/login';
+        }
+        return Promise.reject(err);
+      }
+
+      if (originalRequest._authRetry) {
+        clearAuthStorage();
+        if (path !== '/login') window.location.href = '/login';
+        return Promise.reject(err);
+      }
+
+      if (!localStorage.getItem('refreshToken') || !localStorage.getItem('sessionToken')) {
+        clearAuthStorage();
+        if (path !== '/login') window.location.href = '/login';
+        return Promise.reject(err);
+      }
+
+      try {
+        if (!refreshPromise) {
+          refreshPromise = refreshAccessToken().finally(() => {
+            refreshPromise = null;
+          });
+        }
+        const newAccess = await refreshPromise;
+        if (!newAccess) {
+          clearAuthStorage();
+          if (path !== '/login') window.location.href = '/login';
+          return Promise.reject(err);
+        }
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${newAccess}`;
+        originalRequest._authRetry = true;
+        return apiClient(originalRequest);
+      } catch {
+        return Promise.reject(err);
+      }
+    }
+
+    if (status === 403) {
       const noRedirectPaths = ['/', '/login', '/quan-ly-bao-cao'];
       if (!noRedirectPaths.includes(path)) window.location.href = '/';
     }
@@ -35,10 +114,12 @@ apiClient.interceptors.response.use(
 export const login = async (username, password) => {
   try {
     const { data } = await apiClient.post(API_ENDPOINTS.AUTH_LOGIN, { username, password });
-    if (data?.success && data.data?.token && data.data?.user) {
-      localStorage.setItem('authToken', data.data.token);
-      localStorage.setItem('user', JSON.stringify(data.data.user));
-      return { success: true, user: data.data.user };
+    const d = data?.data;
+    const access = d?.access_token || d?.token;
+    if (data?.success && d?.user && access) {
+      persistAuthTokens(d);
+      localStorage.setItem('user', JSON.stringify(d.user));
+      return { success: true, user: d.user };
     }
     return { success: false, error: data?.error || 'Đăng nhập thất bại' };
   } catch (err) {
@@ -49,12 +130,33 @@ export const login = async (username, password) => {
   }
 };
 
+/**
+ * Đăng ký — response 201, cùng cấu trúc data như login (user + tokens).
+ */
+export const register = async (payload) => {
+  try {
+    const { data, status } = await apiClient.post(API_ENDPOINTS.AUTH_REGISTER, payload);
+    const d = data?.data;
+    const access = d?.access_token || d?.token;
+    if (data?.success && d?.user && access) {
+      persistAuthTokens(d);
+      localStorage.setItem('user', JSON.stringify(d.user));
+      return { success: true, user: d.user, status };
+    }
+    return { success: false, error: data?.error || 'Đăng ký thất bại' };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.response?.data?.error || err.message || 'Đăng ký thất bại',
+    };
+  }
+};
+
 export const logout = async () => {
   try {
     await apiClient.post(API_ENDPOINTS.AUTH_LOGOUT);
   } catch {}
-  localStorage.removeItem('authToken');
-  localStorage.removeItem('user');
+  clearAuthStorage();
 };
 
 /**

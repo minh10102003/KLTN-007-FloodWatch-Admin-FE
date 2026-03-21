@@ -2,6 +2,69 @@ import React, { useEffect, useState } from 'react';
 import { getAuditLogs } from '../services/api';
 import { FaClipboardList, FaArrowsRotate } from 'react-icons/fa6';
 
+const ACTION_LABELS = {
+  user_active_changed: 'Thay đổi trạng thái tài khoản',
+  user_role_changed: 'Thay đổi vai trò người dùng',
+  user_created: 'Tạo tài khoản người dùng',
+  user_password_reset_forced: 'Bắt buộc đặt lại mật khẩu',
+  sensor_calibrated: 'Hiệu chuẩn sensor',
+  sensor_created: 'Thêm sensor',
+  sensor_updated: 'Cập nhật cấu hình sensor',
+  sensor_deleted: 'Xóa sensor',
+  report_approved: 'Duyệt báo cáo',
+  report_rejected: 'Từ chối báo cáo',
+};
+
+const ENTITY_LABELS = {
+  user: 'Người dùng',
+  sensor: 'Sensor',
+  report: 'Báo cáo',
+};
+
+function getActionLabel(action) {
+  if (!action) return '—';
+  return ACTION_LABELS[action] || action.replaceAll('_', ' ');
+}
+
+function getEntityLabel(entityType, entityId) {
+  if (!entityType && !entityId) return '—';
+  const label = ENTITY_LABELS[entityType] || entityType || 'Đối tượng';
+  return entityId ? `${label} #${entityId}` : label;
+}
+
+function formatDetails(details) {
+  if (details == null || details === '') return '—';
+
+  const raw = typeof details === 'string' ? details : JSON.stringify(details);
+  if (!raw) return '—';
+
+  const normalized = raw.replaceAll('"', '');
+
+  if (normalized.includes('is_active=true')) return 'Trạng thái tài khoản: Hoạt động';
+  if (normalized.includes('is_active=false')) return 'Trạng thái tài khoản: Đã khóa';
+
+  const roleMatch = normalized.match(/role=([a-z_]+)/i);
+  if (roleMatch?.[1]) {
+    const roleValue = roleMatch[1].toLowerCase();
+    const roleLabel =
+      roleValue === 'admin'
+        ? 'Quản trị viên'
+        : roleValue === 'moderator'
+          ? 'Điều hành viên'
+          : roleValue === 'user'
+            ? 'Người dùng'
+            : roleValue;
+    return `Vai trò mới: ${roleLabel}`;
+  }
+
+  return normalized
+    .replaceAll('location_name=', 'Vị trí: ')
+    .replaceAll('sensor_id=', 'Mã sensor: ')
+    .replaceAll('warning_threshold=', 'Ngưỡng cảnh báo: ')
+    .replaceAll('danger_threshold=', 'Ngưỡng nguy hiểm: ')
+    .replaceAll(',', ' | ');
+}
+
 export default function AuditLogPage() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -105,10 +168,10 @@ export default function AuditLogPage() {
                     {log.created_at ? new Date(log.created_at).toLocaleString('vi-VN') : '—'}
                   </td>
                   <td className="px-4 py-3 text-zinc-300">{log.user_id ?? '—'}</td>
-                  <td className="px-4 py-3 font-medium text-zinc-200">{log.action ?? '—'}</td>
-                  <td className="px-4 py-3 text-zinc-300">{log.entity_type ?? '—'} {log.entity_id ? `#${log.entity_id}` : ''}</td>
+                  <td className="px-4 py-3 font-medium text-zinc-200">{getActionLabel(log.action)}</td>
+                  <td className="px-4 py-3 text-zinc-300">{getEntityLabel(log.entity_type, log.entity_id)}</td>
                   <td className="px-4 py-3 text-zinc-400 max-w-xs truncate">
-                    {typeof log.details === 'object' ? JSON.stringify(log.details) : log.details ?? '—'}
+                    {formatDetails(log.details)}
                   </td>
                 </tr>
               ))}
