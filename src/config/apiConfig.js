@@ -1,10 +1,14 @@
 export const API_CONFIG = {
-  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000',
+  BASE_URL:
+    import.meta.env.VITE_API_BASE_URL ||
+    'https://kltn-007-floodwatch-be-production.up.railway.app',
   TIMEOUT: 10000,
 };
 
 export const API_ENDPOINTS = {
   AUTH_LOGIN: '/api/auth/login',
+  AUTH_REGISTER: '/api/auth/register',
+  AUTH_REFRESH: '/api/auth/refresh',
   AUTH_LOGOUT: '/api/auth/logout',
   AUTH_PROFILE: '/api/auth/profile',
   AUTH_USERS: '/api/auth/users',
