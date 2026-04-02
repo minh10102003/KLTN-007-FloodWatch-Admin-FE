@@ -38,7 +38,8 @@ const refreshAccessToken = async () => {
     }
     return null;
   } catch (e) {
-    if (e.response?.status === 401) return null;
+    const s = e.response?.status;
+    if (s === 401 || s === 404) return null;
     throw e;
   }
 };
@@ -123,31 +124,126 @@ export const login = async (username, password) => {
     }
     return { success: false, error: data?.error || 'Đăng nhập thất bại' };
   } catch (err) {
+    const status = err.response?.status;
+    const msg =
+      err.response?.data?.error ||
+      err.response?.data?.message ||
+      err.message ||
+      'Đăng nhập thất bại';
+    if (status === 403) {
+      return { success: false, error: msg, needsEmailVerification: true };
+    }
+    return { success: false, error: msg };
+  }
+};
+
+/**
+ * Đăng ký công khai — 201, chỉ `data.user`, không JWT. Bước tiếp: verify-otp rồi mới login.
+ */
+export const register = async (payload) => {
+  try {
+    const email =
+      typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : payload.email;
+    const { data } = await apiClient.post(API_ENDPOINTS.AUTH_REGISTER, { ...payload, email });
+    const d = data?.data;
+    if (data?.success && d?.user) {
+      return {
+        success: true,
+        user: d.user,
+        message: data.message || 'Đăng ký thành công. Kiểm tra email và nhập mã OTP.',
+      };
+    }
+    return { success: false, error: data?.error || data?.message || 'Đăng ký thất bại' };
+  } catch (err) {
     return {
       success: false,
-      error: err.response?.data?.error || err.message || 'Đăng nhập thất bại',
+      error:
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        'Đăng ký thất bại',
     };
   }
 };
 
 /**
- * Đăng ký — response 201, cùng cấu trúc data như login (user + tokens).
+ * Hoàn tất đăng ký — xác minh email OTP.
+ * Body: { email, otp_code }
  */
-export const register = async (payload) => {
+export const verifyOtp = async ({ email, otp_code }) => {
   try {
-    const { data, status } = await apiClient.post(API_ENDPOINTS.AUTH_REGISTER, payload);
-    const d = data?.data;
-    const access = d?.access_token || d?.token;
-    if (data?.success && d?.user && access) {
-      persistAuthTokens(d);
-      localStorage.setItem('user', JSON.stringify(d.user));
-      return { success: true, user: d.user, status };
+    const { data } = await apiClient.post(API_ENDPOINTS.AUTH_VERIFY_OTP, {
+      email: String(email).trim().toLowerCase(),
+      otp_code: String(otp_code).trim(),
+    });
+    const inner = data?.data;
+    const ok =
+      data?.success &&
+      inner &&
+      (inner.registration_completed === true || inner.verified === true);
+    if (ok) {
+      return {
+        success: true,
+        message: data.message,
+        data: inner,
+      };
     }
-    return { success: false, error: data?.error || 'Đăng ký thất bại' };
+    return {
+      success: false,
+      error: data?.error || data?.message || 'Mã OTP không hợp lệ hoặc đã hết hạn',
+    };
   } catch (err) {
     return {
       success: false,
-      error: err.response?.data?.error || err.message || 'Đăng ký thất bại',
+      error:
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        'Xác minh thất bại',
+    };
+  }
+};
+
+/** Gửi OTP (email đã tồn tại). 201 */
+export const sendOtp = async (email) => {
+  try {
+    const { data } = await apiClient.post(API_ENDPOINTS.AUTH_SEND_OTP, {
+      email: String(email).trim().toLowerCase(),
+    });
+    if (data?.success) {
+      return { success: true, message: data.message, data: data.data };
+    }
+    return { success: false, error: data?.error || data?.message || 'Gửi OTP thất bại' };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        'Gửi OTP thất bại',
+    };
+  }
+};
+
+/** Gửi lại OTP — cùng logic giới hạn với send-otp */
+export const resendOtp = async (email) => {
+  try {
+    const { data } = await apiClient.post(API_ENDPOINTS.AUTH_RESEND_OTP, {
+      email: String(email).trim().toLowerCase(),
+    });
+    if (data?.success) {
+      return { success: true, message: data.message, data: data.data };
+    }
+    return { success: false, error: data?.error || data?.message || 'Gửi lại OTP thất bại' };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        'Gửi lại OTP thất bại',
     };
   }
 };
@@ -179,6 +275,34 @@ export const getUsers = async (limit = 100, offset = 0) => {
 export const createUser = async (payload) => {
   const { data } = await apiClient.post(API_ENDPOINTS.AUTH_USERS, payload);
   return data;
+};
+
+/**
+ * Xóa user vĩnh viễn (chỉ Admin). DELETE /api/auth/users/:userId
+ * BE: không xóa chính mình; xóa admin chỉ khi còn ít nhất một admin khác; audit user_deleted. 200 / 400 / 404.
+ */
+export const deleteUser = async (userId) => {
+  try {
+    const url = API_ENDPOINTS.AUTH_USER_BY_ID.replace(':userId', String(userId));
+    const { data } = await apiClient.delete(url);
+    if (data?.success === false) {
+      return { success: false, error: data?.error || data?.message || 'Xóa thất bại' };
+    }
+    return {
+      success: true,
+      message: data?.message || 'Đã xóa tài khoản',
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        'Xóa thất bại',
+      status: err.response?.status,
+    };
+  }
 };
 
 export const assignRole = async (userId, role) => {

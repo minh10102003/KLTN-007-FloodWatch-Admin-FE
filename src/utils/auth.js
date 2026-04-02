@@ -5,7 +5,7 @@ const STORAGE = {
   USER: 'user',
 };
 
-/** Ghi đè access (JWT), refresh (opaque) và session (UUID) sau login/register/refresh thành công. */
+/** Ghi đè access (JWT), refresh (opaque) và session (UUID) sau login / refresh thành công (không dùng sau đăng ký công khai — BE không trả token). */
 export const persistAuthTokens = (payload) => {
   if (!payload || typeof payload !== 'object') return;
   const access = payload.access_token || payload.token;

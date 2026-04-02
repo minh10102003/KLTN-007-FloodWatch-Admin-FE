@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { FaXmark } from 'react-icons/fa6';
-import { getUsers, assignRole, setUserActive, recomputeUserReliability, createUser } from '../services/api';
+import { getUsers, assignRole, setUserActive, recomputeUserReliability, createUser, deleteUser } from '../services/api';
 import { getCurrentUser, isAdmin } from '../utils/auth';
 import { getReporterReliabilityTier } from '../utils/reliabilityHelpers';
 import { Badge } from '../components/ui/Badge';
@@ -33,6 +33,9 @@ export default function UserManagementPage() {
   const [createError, setCreateError] = useState('');
   const [banDialog, setBanDialog] = useState(null);
   const [banReason, setBanReason] = useState('');
+  const [deleteDialog, setDeleteDialog] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const deleteInFlightRef = useRef(false);
   const currentUser = getCurrentUser();
   const canCreateUser = isAdmin();
 
@@ -128,6 +131,30 @@ export default function UserManagementPage() {
     setCreateModalOpen(true);
     setCreateForm(initialCreateForm);
     setCreateError('');
+  };
+
+  const handleDeleteUserConfirm = async () => {
+    if (!deleteDialog || deleteInFlightRef.current) return;
+    deleteInFlightRef.current = true;
+    setMessage({ type: '', text: '' });
+    setDeleteLoading(true);
+    try {
+      const res = await deleteUser(deleteDialog.id);
+      if (res.success) {
+        setMessage({ type: 'success', text: res.message || 'Đã xóa tài khoản' });
+        setDeleteDialog(null);
+        loadUsers();
+      } else {
+        setMessage({
+          type: 'error',
+          text: res.error || (res.status === 404 ? 'Không tìm thấy người dùng' : 'Xóa thất bại'),
+        });
+        if (res.status === 404) setDeleteDialog(null);
+      }
+    } finally {
+      deleteInFlightRef.current = false;
+      setDeleteLoading(false);
+    }
   };
 
   const handleCreateUser = async (e) => {
@@ -259,6 +286,15 @@ export default function UserManagementPage() {
                         Mở khóa
                       </button>
                     )}
+                    {canCreateUser && u.id !== currentUser?.id && (
+                      <button
+                        type="button"
+                        onClick={() => setDeleteDialog(u)}
+                        className="mr-2 text-red-500 hover:underline text-sm font-medium"
+                      >
+                        Xóa tài khoản
+                      </button>
+                    )}
                     <button type="button" onClick={() => handleForcePasswordReset(u.id)} className="text-zinc-400 hover:underline text-sm">
                       Đặt lại mật khẩu bắt buộc
                     </button>
@@ -349,6 +385,30 @@ export default function UserManagementPage() {
           ) : null
         }
         confirmLabel="Khóa tài khoản"
+        variant="destructive"
+      />
+
+      <Dialog
+        open={!!deleteDialog}
+        onClose={() => !deleteLoading && setDeleteDialog(null)}
+        onConfirm={handleDeleteUserConfirm}
+        confirmDisabled={deleteLoading}
+        title="Xóa tài khoản vĩnh viễn"
+        description={
+          deleteDialog ? (
+            <div className="space-y-2 text-zinc-400">
+              <p>
+                Hành động này không thể hoàn tác. User{' '}
+                <strong className="text-zinc-200">{deleteDialog.username}</strong> (ID {deleteDialog.id}) và dữ liệu
+                liên quan sẽ bị gỡ khỏi hệ thống theo chính sách backend.
+              </p>
+              <p className="text-xs text-zinc-500">
+                Không thể xóa chính bạn hoặc admin cuối cùng — server sẽ trả lỗi 400 nếu vi phạm.
+              </p>
+            </div>
+          ) : null
+        }
+        confirmLabel={deleteLoading ? 'Đang xóa...' : 'Xóa vĩnh viễn'}
         variant="destructive"
       />
 

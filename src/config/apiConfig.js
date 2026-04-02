@@ -1,17 +1,35 @@
+const rawBaseUrl =
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://kltn-007-floodwatch-be-production.up.railway.app';
+
+const normalizedApiBase = String(rawBaseUrl).replace(/\/+$/, '');
+
+/** Không có dấu / cuối — tránh // khi nối với path bắt đầu bằng / (vd. refresh token). */
 export const API_CONFIG = {
-  BASE_URL:
-    import.meta.env.VITE_API_BASE_URL ||
-    'https://kltn-007-floodwatch-be-production.up.railway.app',
+  BASE_URL: normalizedApiBase,
+  /**
+   * Ảnh báo cáo thường là `/uploads/...`. Mặc định cùng host API.
+   * Set `VITE_UPLOADS_BASE_URL` nếu BE phục vụ file qua host/path khác (CDN, prefix `/api/...`).
+   */
+  UPLOADS_BASE_URL: String(import.meta.env.VITE_UPLOADS_BASE_URL || normalizedApiBase).replace(
+    /\/+$/,
+    ''
+  ),
   TIMEOUT: 10000,
 };
 
 export const API_ENDPOINTS = {
   AUTH_LOGIN: '/api/auth/login',
   AUTH_REGISTER: '/api/auth/register',
+  AUTH_VERIFY_OTP: '/api/auth/verify-otp',
+  AUTH_SEND_OTP: '/api/auth/send-otp',
+  AUTH_RESEND_OTP: '/api/auth/resend-otp',
   AUTH_REFRESH: '/api/auth/refresh',
   AUTH_LOGOUT: '/api/auth/logout',
   AUTH_PROFILE: '/api/auth/profile',
   AUTH_USERS: '/api/auth/users',
+  /** Xóa user (Admin). DELETE */
+  AUTH_USER_BY_ID: '/api/auth/users/:userId',
   AUTH_USER_ROLE: '/api/auth/users/:userId/role',
   AUTH_USER_ACTIVE: '/api/auth/users/:userId/active',
   AUTH_USER_RECOMPUTE_RELIABILITY: '/api/auth/users/:userId/recompute-reliability',
