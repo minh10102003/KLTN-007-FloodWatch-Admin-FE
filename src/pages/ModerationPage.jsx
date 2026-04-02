@@ -5,6 +5,7 @@ import { getReporterReliabilityTier } from '../utils/reliabilityHelpers';
 import { reverseGeocode, getDisplayAddress } from '../utils/geocode';
 import { FaCheck, FaXmark, FaArrowsRotate, FaFilter, FaStar, FaGripVertical } from 'react-icons/fa6';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
+import ReportImage from '../components/ReportImage';
 
 const FLOOD_LEVELS = ['Tất cả', 'Nặng', 'Trung bình', 'Nhẹ'];
 
@@ -294,7 +295,7 @@ function ReportDetailModalContent({
               <div className="grid grid-cols-2 gap-2">
                 {photoUrls.map((url, idx) => (
                   <button key={idx} type="button" onClick={() => setPhotoModalUrl(url)} className="rounded-lg overflow-hidden border border-dashboard-border bg-dashboard-surface focus:outline-none focus:ring-2 focus:ring-violet-500">
-                    <img src={url} alt="" className="w-full aspect-video object-cover" />
+                    <ReportImage src={url} alt="" className="w-full aspect-video object-cover" />
                   </button>
                 ))}
               </div>
@@ -755,7 +756,7 @@ export default function ModerationPage() {
             >
               <FaXmark className="h-5 w-5" />
             </button>
-            <img
+            <ReportImage
               src={photoModalUrl}
               alt="Ảnh báo cáo ngập"
               className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-xl"

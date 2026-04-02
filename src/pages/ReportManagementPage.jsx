@@ -14,6 +14,7 @@ import { getReportsAll, getReportStats } from '../services/api';
 import { Table, TableHead, TableBody, TableRow, TableTh, TableTd } from '../components/ui/Table';
 import { FaArrowsRotate, FaXmark } from 'react-icons/fa6';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
+import ReportImage from '../components/ReportImage';
 
 /** Độ rộng cột theo % — phân bổ đều, tránh cột Nội dung chiếm hết không gian */
 const REPORT_TABLE_COL_WIDTHS = [6, 12, 10, 18, 22, 14, 18];
@@ -315,7 +316,7 @@ export default function ReportManagementPage() {
                                 onClick={() => setPhotoModalUrl(url)}
                                 className="h-10 w-10 shrink-0 overflow-hidden rounded border border-dashboard-border bg-dashboard-surface focus:outline-none focus:ring-2 focus:ring-violet-500"
                               >
-                                <img src={url} alt="" className="h-full w-full object-cover" />
+                                <ReportImage src={url} alt="" className="h-full w-full object-cover" />
                               </button>
                             ))}
                             {photoUrls.length > 3 && (
@@ -359,7 +360,7 @@ export default function ReportManagementPage() {
             >
               <FaXmark className="h-5 w-5" />
             </button>
-            <img
+            <ReportImage
               src={photoModalUrl}
               alt="Ảnh báo cáo"
               className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-xl"
