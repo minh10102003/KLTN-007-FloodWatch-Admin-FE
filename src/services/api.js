@@ -7,6 +7,16 @@ const apiClient = axios.create({
   timeout: API_CONFIG.TIMEOUT,
 });
 
+const getCurrentBaseUrl = () => apiClient.defaults.baseURL || API_CONFIG.BASE_URL;
+
+const hasFallbackBaseUrl =
+  !!API_CONFIG.FALLBACK_BASE_URL && API_CONFIG.FALLBACK_BASE_URL !== API_CONFIG.BASE_URL;
+
+const promoteFallbackBaseUrl = () => {
+  if (!hasFallbackBaseUrl) return;
+  apiClient.defaults.baseURL = API_CONFIG.FALLBACK_BASE_URL;
+};
+
 /** Chỉ một luồng refresh; các request 401 khác chờ cùng promise. */
 let refreshPromise = null;
 
@@ -25,7 +35,7 @@ const refreshAccessToken = async () => {
   if (!refresh_token || !session_token) return null;
   try {
     const { data } = await axios.post(
-      `${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH_REFRESH}`,
+      `${getCurrentBaseUrl()}${API_ENDPOINTS.AUTH_REFRESH}`,
       { refresh_token, session_token },
       {
         timeout: API_CONFIG.TIMEOUT,
@@ -59,6 +69,19 @@ apiClient.interceptors.response.use(
     const path = window.location.pathname;
     const status = err.response?.status;
     const originalRequest = err.config;
+
+    // Network-level fail (ERR_NETWORK / net::ERR_FAILED): retry once via fallback base URL.
+    if (!err.response && originalRequest && hasFallbackBaseUrl && !originalRequest._fallbackRetried) {
+      originalRequest._fallbackRetried = true;
+      originalRequest.baseURL = API_CONFIG.FALLBACK_BASE_URL;
+      try {
+        const retryRes = await apiClient(originalRequest);
+        promoteFallbackBaseUrl();
+        return retryRes;
+      } catch (retryErr) {
+        return Promise.reject(retryErr);
+      }
+    }
 
     if (status === 401 && originalRequest) {
       const reqUrl = originalRequest.url || '';
@@ -124,10 +147,35 @@ export const login = async (username, password) => {
     }
     return { success: false, error: data?.error || 'Đăng nhập thất bại' };
   } catch (err) {
+    // Nếu login lần đầu gặp lỗi mạng, thử lại với fallback domain trước khi trả lỗi cho UI.
+    if (!err.response && hasFallbackBaseUrl) {
+      try {
+        const { data } = await axios.post(
+          `${API_CONFIG.FALLBACK_BASE_URL}${API_ENDPOINTS.AUTH_LOGIN}`,
+          { username, password },
+          {
+            timeout: API_CONFIG.TIMEOUT,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+        const d = data?.data;
+        const access = d?.access_token || d?.token;
+        if (data?.success && d?.user && access) {
+          promoteFallbackBaseUrl();
+          persistAuthTokens(d);
+          localStorage.setItem('user', JSON.stringify(d.user));
+          return { success: true, user: d.user };
+        }
+      } catch {}
+    }
+
     const status = err.response?.status;
     const msg =
       err.response?.data?.error ||
       err.response?.data?.message ||
+      (err.code === 'ERR_NETWORK'
+        ? 'Khong the ket noi den may chu API. Vui long kiem tra mang hoac thu lai sau.'
+        : null) ||
       err.message ||
       'Đăng nhập thất bại';
     if (status === 403) {
@@ -443,6 +491,231 @@ export const getReportStats = async (params = {}) => {
       data: null,
       error,
       status,
+    };
+  }
+};
+
+/**
+ * Research D1 - Evaluation (MAE/RMSE/Bias).
+ * GET /api/v1/research/evaluation
+ */
+export const getResearchEvaluation = async (params = {}) => {
+  try {
+    const q = new URLSearchParams();
+    if (params.crowd_hours != null) q.set('crowd_hours', String(params.crowd_hours));
+    if (params.sensor_hours != null) q.set('sensor_hours', String(params.sensor_hours));
+    if (params.min_lng != null) q.set('min_lng', String(params.min_lng));
+    if (params.max_lng != null) q.set('max_lng', String(params.max_lng));
+    if (params.min_lat != null) q.set('min_lat', String(params.min_lat));
+    if (params.max_lat != null) q.set('max_lat', String(params.max_lat));
+    const query = q.toString();
+    const { data } = await apiClient.get(`${API_ENDPOINTS.RESEARCH_EVALUATION}${query ? `?${query}` : ''}`);
+    if (data?.success && data?.data) {
+      return { success: true, data: data.data, meta: data.meta || null };
+    }
+    return { success: false, data: null, error: data?.error || data?.message || 'Không có dữ liệu đánh giá' };
+  } catch (err) {
+    return {
+      success: false,
+      data: null,
+      error: err.response?.data?.error || err.response?.data?.message || err.message,
+      status: err.response?.status,
+    };
+  }
+};
+
+/**
+ * Research D2 - Cold-start hotspots.
+ * GET /api/v1/research/cold-start-hotspots
+ */
+export const getResearchColdStartHotspots = async (params = {}) => {
+  try {
+    const q = new URLSearchParams();
+    if (params.report_hours != null) q.set('report_hours', String(params.report_hours));
+    if (params.no_sensor_radius_m != null) q.set('no_sensor_radius_m', String(params.no_sensor_radius_m));
+    if (params.min_reports != null) q.set('min_reports', String(params.min_reports));
+    if (params.min_lng != null) q.set('min_lng', String(params.min_lng));
+    if (params.max_lng != null) q.set('max_lng', String(params.max_lng));
+    if (params.min_lat != null) q.set('min_lat', String(params.min_lat));
+    if (params.max_lat != null) q.set('max_lat', String(params.max_lat));
+    const query = q.toString();
+    const { data } = await apiClient.get(
+      `${API_ENDPOINTS.RESEARCH_COLD_START_HOTSPOTS}${query ? `?${query}` : ''}`
+    );
+    if (data?.success && Array.isArray(data?.data)) {
+      return { success: true, data: data.data, meta: data.meta || null };
+    }
+    return { success: false, data: [], error: data?.error || data?.message || 'Không có dữ liệu hotspot' };
+  } catch (err) {
+    return {
+      success: false,
+      data: [],
+      error: err.response?.data?.error || err.response?.data?.message || err.message,
+      status: err.response?.status,
+    };
+  }
+};
+
+/**
+ * A1 — Fusion điểm (sensor + crowd). GET /api/v1/fusion/points
+ * BE yêu cầu bbox đủ 4 cạnh: min_lng, max_lng, min_lat, max_lat.
+ */
+export const getFusionPoints = async (params = {}) => {
+  try {
+    const q = new URLSearchParams();
+    if (params.crowd_hours != null) q.set('crowd_hours', String(params.crowd_hours));
+    if (params.sensor_hours != null) q.set('sensor_hours', String(params.sensor_hours));
+    if (params.include_sensors === false) q.set('include_sensors', 'false');
+    if (params.min_lng != null) q.set('min_lng', String(params.min_lng));
+    if (params.max_lng != null) q.set('max_lng', String(params.max_lng));
+    if (params.min_lat != null) q.set('min_lat', String(params.min_lat));
+    if (params.max_lat != null) q.set('max_lat', String(params.max_lat));
+    const query = q.toString();
+    const { data } = await apiClient.get(`${API_ENDPOINTS.FUSION_POINTS}${query ? `?${query}` : ''}`);
+    if (data?.success && data?.data) {
+      return { success: true, data: data.data, meta: data.meta || null };
+    }
+    return { success: false, data: null, error: data?.error || data?.message || 'Không tải fusion' };
+  } catch (err) {
+    return {
+      success: false,
+      data: null,
+      error: err.response?.data?.error || err.response?.data?.message || err.message,
+      status: err.response?.status,
+    };
+  }
+};
+
+/**
+ * A3 — Dự báo ngắn hạn theo sensor. GET /api/v1/forecast/sensor/:sensorId
+ */
+export const getSensorForecast = async (sensorId, params = {}) => {
+  try {
+    const q = new URLSearchParams();
+    if (params.horizon != null) q.set('horizon', String(params.horizon));
+    if (params.sample_minutes != null) q.set('sample_minutes', String(params.sample_minutes));
+    const path = API_ENDPOINTS.FORECAST_SENSOR.replace(':sensorId', String(sensorId));
+    const query = q.toString();
+    const { data } = await apiClient.get(`${path}${query ? `?${query}` : ''}`);
+    if (data?.success && data.data) {
+      return { success: true, data: data.data };
+    }
+    return { success: false, data: null, error: data?.error || data?.message || 'Không có dự báo' };
+  } catch (err) {
+    return {
+      success: false,
+      data: null,
+      error: err.response?.data?.error || err.response?.data?.message || err.message,
+      status: err.response?.status,
+    };
+  }
+};
+
+/** B1 — Sức khỏe thiết bị (admin). */
+export const getAdminDevicesHealth = async () => {
+  try {
+    const { data } = await apiClient.get(API_ENDPOINTS.ADMIN_DEVICES_HEALTH);
+    if (data?.success && Array.isArray(data.data)) {
+      return {
+        success: true,
+        data: data.data,
+        summary: data.summary || null,
+        meta: data.meta || null,
+      };
+    }
+    return { success: false, data: [], error: data?.error || 'Không tải health' };
+  } catch (err) {
+    return {
+      success: false,
+      data: [],
+      error: err.response?.data?.error || err.response?.data?.message || err.message,
+      status: err.response?.status,
+    };
+  }
+};
+
+/** C1 — Thống kê cảnh báo khẩn đã gửi (admin). */
+export const getEmergencyAlertsSummary = async (hours = 24) => {
+  try {
+    const h = Math.min(168, Math.max(1, Number(hours) || 24));
+    const { data } = await apiClient.get(
+      `${API_ENDPOINTS.ADMIN_EMERGENCY_ALERTS_SUMMARY}?hours=${h}`
+    );
+    if (data?.success && data.data) {
+      return { success: true, data: data.data };
+    }
+    return { success: false, data: null, error: data?.error || 'Không tải thống kê' };
+  } catch (err) {
+    return {
+      success: false,
+      data: null,
+      error: err.response?.data?.error || err.response?.data?.message || err.message,
+      status: err.response?.status,
+    };
+  }
+};
+
+function heatmapQuery(params = {}) {
+  const q = new URLSearchParams();
+  if (params.minLng != null) q.set('minLng', String(params.minLng));
+  if (params.minLat != null) q.set('minLat', String(params.minLat));
+  if (params.maxLng != null) q.set('maxLng', String(params.maxLng));
+  if (params.maxLat != null) q.set('maxLat', String(params.maxLat));
+  if (params.gridSize != null) q.set('gridSize', String(params.gridSize));
+  return q.toString();
+}
+
+/** C2 — Heatmap sensors. */
+export const getHeatmap = async (params = {}) => {
+  try {
+    const query = heatmapQuery(params);
+    const { data } = await apiClient.get(`${API_ENDPOINTS.HEATMAP}${query ? `?${query}` : ''}`);
+    if (data?.success) {
+      return { success: true, data: Array.isArray(data.data) ? data.data : [] };
+    }
+    return { success: false, data: [], error: data?.error };
+  } catch (err) {
+    return {
+      success: false,
+      data: [],
+      error: err.response?.data?.error || err.message,
+      status: err.response?.status,
+    };
+  }
+};
+
+export const getHeatmapCombined = async (params = {}) => {
+  try {
+    const query = heatmapQuery(params);
+    const { data } = await apiClient.get(`${API_ENDPOINTS.HEATMAP_COMBINED}${query ? `?${query}` : ''}`);
+    if (data?.success) {
+      return { success: true, data: Array.isArray(data.data) ? data.data : [] };
+    }
+    return { success: false, data: [], error: data?.error };
+  } catch (err) {
+    return {
+      success: false,
+      data: [],
+      error: err.response?.data?.error || err.message,
+      status: err.response?.status,
+    };
+  }
+};
+
+export const getHeatmapTimeline24h = async (params = {}) => {
+  try {
+    const query = heatmapQuery(params);
+    const { data } = await apiClient.get(`${API_ENDPOINTS.HEATMAP_TIMELINE_24H}${query ? `?${query}` : ''}`);
+    if (data?.success && Array.isArray(data.data)) {
+      return { success: true, data: data.data };
+    }
+    return { success: false, data: [], error: data?.error };
+  } catch (err) {
+    return {
+      success: false,
+      data: [],
+      error: err.response?.data?.error || err.message,
+      status: err.response?.status,
     };
   }
 };

@@ -1,5 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { getSensorsList, updateSensor, updateSensorThresholds, createSensor, deleteSensor, calibrateSensor } from '../services/api';
+import {
+  getSensorsList,
+  updateSensor,
+  updateSensorThresholds,
+  createSensor,
+  deleteSensor,
+  calibrateSensor,
+  getSensorForecast,
+} from '../services/api';
 import {
   Menu,
   MenuTrigger,
@@ -104,6 +112,97 @@ function EditConfigModal({ open, onClose, sensor, onSave }) {
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/** A3 — Dự báo ngắn hạn theo sensor (GET /api/v1/forecast/sensor/:id). */
+function ForecastSensorModal({ sensor, open, onClose }) {
+  const [horizon, setHorizon] = useState(60);
+  const [sampleMinutes, setSampleMinutes] = useState(90);
+  const [loading, setLoading] = useState(false);
+  const [forecast, setForecast] = useState(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (!open) {
+      setForecast(null);
+      setErr('');
+    }
+  }, [open]);
+
+  const run = async () => {
+    if (!sensor) return;
+    setLoading(true);
+    setErr('');
+    const res = await getSensorForecast(sensor.sensor_id, {
+      horizon,
+      sample_minutes: sampleMinutes,
+    });
+    setLoading(false);
+    if (res.success && res.data) {
+      setForecast(res.data);
+    } else {
+      setForecast(null);
+      setErr(res.error || 'Không lấy được dự báo');
+    }
+  };
+
+  if (!sensor) return null;
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Dự báo ngắn hạn — ${sensor.sensor_id}`}
+      description="A3: xu hướng từ flood_logs, horizon 15–120 phút."
+    >
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs text-zinc-400">
+            horizon (phút)
+            <input
+              type="number"
+              min={15}
+              max={120}
+              value={horizon}
+              onChange={(e) => setHorizon(Number(e.target.value))}
+              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-2 py-1.5 text-sm text-zinc-100"
+            />
+          </label>
+          <label className="text-xs text-zinc-400">
+            sample_minutes
+            <input
+              type="number"
+              min={15}
+              max={1440}
+              value={sampleMinutes}
+              onChange={(e) => setSampleMinutes(Number(e.target.value))}
+              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-2 py-1.5 text-sm text-zinc-100"
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={loading}
+          className="w-full rounded-lg bg-violet-600 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+        >
+          {loading ? 'Đang tính...' : 'Tải dự báo'}
+        </button>
+        {err && <p className="text-sm text-red-300">{err}</p>}
+        {forecast && (
+          <div className="rounded-lg border border-dashboard-border bg-dashboard-surface p-3 text-xs text-zinc-300 space-y-1 font-mono">
+            <p>Mực hiện tại (cm): {forecast.current_water_level_cm ?? '—'}</p>
+            <p>Vận tốc (cm/giờ): {forecast.velocity_cm_per_hour ?? '—'}</p>
+            <p>Dự báo sau horizon (cm): {forecast.predicted_water_level_cm ?? '—'}</p>
+            <p>Confidence: {forecast.confidence ?? '—'}</p>
+            <p>Mẫu log: {forecast.sample_count ?? '—'}</p>
+            <p>Ước lượng tới ngưỡng cảnh báo (phút): {forecast.estimated_minutes_to_warning ?? '—'}</p>
+            <p>Ước lượng tới ngưỡng nguy hiểm (phút): {forecast.estimated_minutes_to_danger ?? '—'}</p>
+          </div>
+        )}
+      </div>
     </Modal>
   );
 }
@@ -236,6 +335,7 @@ export default function SensorsPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [loadError, setLoadError] = useState('');
+  const [forecastSensor, setForecastSensor] = useState(null);
 
   const loadSensors = async () => {
     setLoading(true);
@@ -409,6 +509,7 @@ export default function SensorsPage() {
                           <MenuItem onSelect={() => setEditModal(s)}>
                             Chỉnh sửa cấu hình
                           </MenuItem>
+                          <MenuItem onSelect={() => setForecastSensor(s)}>Dự báo ngắn hạn (A3)</MenuItem>
                           <MenuItem onSelect={() => handleCalibrate(s.sensor_id)} disabled={calibratingId === s.sensor_id}>
                             {calibratingId === s.sensor_id ? 'Đang hiệu chuẩn...' : 'Hiệu chuẩn sensor'}
                           </MenuItem>
@@ -428,6 +529,11 @@ export default function SensorsPage() {
       )}
       <EditConfigModal open={!!editModal} onClose={() => setEditModal(null)} sensor={editModal} onSave={handleEditConfig} />
       <CreateSensorModal open={createModalOpen} onClose={() => setCreateModalOpen(false)} onSuccess={handleCreateSuccess} />
+      <ForecastSensorModal
+        sensor={forecastSensor}
+        open={!!forecastSensor}
+        onClose={() => setForecastSensor(null)}
+      />
       <Dialog
         open={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}

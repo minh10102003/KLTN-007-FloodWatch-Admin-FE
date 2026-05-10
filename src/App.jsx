@@ -12,6 +12,11 @@ import ReportManagementPage from './pages/ReportManagementPage';
 import ReliabilityRankingPage from './pages/ReliabilityRankingPage';
 import ReportStatsPage from './pages/ReportStatsPage';
 import AuditLogPage from './pages/AuditLogPage';
+import ResearchAnalyticsPage from './pages/ResearchAnalyticsPage';
+import DeviceHealthPage from './pages/DeviceHealthPage';
+import EmergencyAlertsSummaryPage from './pages/EmergencyAlertsSummaryPage';
+import HeatmapAnalyticsPage from './pages/HeatmapAnalyticsPage';
+import FusionPointsPage from './pages/FusionPointsPage';
 import Layout from './components/layout/Layout';
 
 const AdminRoute = ({ children }) => {
@@ -102,6 +107,56 @@ function App() {
                 <ReportStatsPage />
               </Layout>
             </ModeratorOnlyRoute>
+          }
+        />
+        <Route
+          path="/research"
+          element={
+            <AdminRoute>
+              <Layout>
+                <ResearchAnalyticsPage />
+              </Layout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/device-health"
+          element={
+            <AdminOnlyRoute>
+              <Layout>
+                <DeviceHealthPage />
+              </Layout>
+            </AdminOnlyRoute>
+          }
+        />
+        <Route
+          path="/emergency-alerts"
+          element={
+            <AdminOnlyRoute>
+              <Layout>
+                <EmergencyAlertsSummaryPage />
+              </Layout>
+            </AdminOnlyRoute>
+          }
+        />
+        <Route
+          path="/heatmap"
+          element={
+            <AdminRoute>
+              <Layout>
+                <HeatmapAnalyticsPage />
+              </Layout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/fusion"
+          element={
+            <AdminRoute>
+              <Layout>
+                <FusionPointsPage />
+              </Layout>
+            </AdminRoute>
           }
         />
         <Route

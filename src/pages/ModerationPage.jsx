@@ -6,6 +6,7 @@ import { reverseGeocode, getDisplayAddress } from '../utils/geocode';
 import { FaCheck, FaXmark, FaArrowsRotate, FaFilter, FaStar, FaGripVertical } from 'react-icons/fa6';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
 import ReportImage from '../components/ReportImage';
+import ConfidenceBadge from '../components/ConfidenceBadge';
 
 const FLOOD_LEVELS = ['Tất cả', 'Nặng', 'Trung bình', 'Nhẹ'];
 
@@ -177,6 +178,7 @@ function ReportMiniCard({
                 {statusLabel}
               </span>
             )}
+            <ConfidenceBadge report={report} />
           </div>
         </div>
         {isPending && (
@@ -269,6 +271,7 @@ function ReportDetailModalContent({
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${isPending ? 'bg-amber-500/30 text-amber-200' : status === 'approved' ? 'bg-emerald-500/30 text-emerald-200' : 'bg-zinc-600 text-zinc-400'}`}>
               {isPending ? 'Chờ duyệt' : status === 'approved' ? 'Đã duyệt' : 'Đã từ chối'}
             </span>
+            <ConfidenceBadge report={report} />
           </div>
           <p className="text-sm">
             <span className="font-medium text-zinc-500">Địa điểm: </span>
@@ -289,6 +292,13 @@ function ReportDetailModalContent({
               </div>
             ) : null;
           })()}
+          {report.confidence_breakdown != null && report.confidence_breakdown !== '' && (
+            <p className="text-xs text-zinc-500 border border-dashboard-border rounded-lg p-2 bg-dashboard-surface whitespace-pre-wrap">
+              {typeof report.confidence_breakdown === 'string'
+                ? report.confidence_breakdown
+                : JSON.stringify(report.confidence_breakdown, null, 2)}
+            </p>
+          )}
           {photoUrls.length > 0 && (
             <div>
               <p className="text-xs font-medium text-zinc-500 mb-2">Ảnh ({photoUrls.length})</p>

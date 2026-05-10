@@ -11,6 +11,10 @@ import {
   ClipboardList,
   Settings,
   LogOut,
+  Activity,
+  BellRing,
+  Flame,
+  Share2,
 } from 'lucide-react';
 import { AnimateIcon } from '../ui/AnimateIcon';
 import { MotionButton } from '../ui/MotionButton';
@@ -24,9 +28,14 @@ const navItems = [
   { path: '/quan-ly-bao-cao', label: 'Quản lý báo cáo', icon: List, adminOnly: true },
   { path: '/moderation', label: 'Kiểm duyệt báo cáo', icon: Search, moderatorOnly: true },
   { path: '/report-stats', label: 'Thống kê báo cáo', icon: BarChart3, moderatorOnly: true },
+  { path: '/research', label: 'Research Analytics', icon: BarChart3 },
+  { path: '/heatmap', label: 'Heatmap & timeline', icon: Flame },
+  { path: '/fusion', label: 'Fusion điểm (A1)', icon: Share2 },
   { path: '/reliability-ranking', label: 'Xếp hạng tin cậy', icon: Star, moderatorOnly: true },
   { path: '/users', label: 'Quản lý user', icon: Users, adminOnly: true },
   { path: '/sensors', label: 'Quản lý Sensors', icon: Gauge, adminOnly: true },
+  { path: '/device-health', label: 'Sức khỏe thiết bị', icon: Activity, adminOnly: true },
+  { path: '/emergency-alerts', label: 'Thống kê cảnh báo', icon: BellRing, adminOnly: true },
   { path: '/audit', label: 'Nhật ký hệ thống', icon: ClipboardList, adminOnly: true },
   { path: '/settings', label: 'Cài đặt hệ thống', icon: Settings, adminOnly: true },
 ];

@@ -15,9 +15,10 @@ import { Table, TableHead, TableBody, TableRow, TableTh, TableTd } from '../comp
 import { FaArrowsRotate, FaXmark } from 'react-icons/fa6';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
 import ReportImage from '../components/ReportImage';
+import ConfidenceBadge, { getReportConfidence } from '../components/ConfidenceBadge';
 
 /** Độ rộng cột theo % — phân bổ đều, tránh cột Nội dung chiếm hết không gian */
-const REPORT_TABLE_COL_WIDTHS = [6, 12, 10, 18, 22, 14, 18];
+const REPORT_TABLE_COL_WIDTHS = [6, 11, 9, 9, 16, 22, 12, 15];
 
 function getReportStatus(report) {
   if (report.status) return report.status;
@@ -266,6 +267,7 @@ export default function ReportManagementPage() {
                   <TableTh>ID</TableTh>
                   <TableTh>Trạng thái</TableTh>
                   <TableTh>Mức độ</TableTh>
+                  <TableTh>Tin cậy</TableTh>
                   <TableTh>Địa điểm</TableTh>
                   <TableTh>Nội dung</TableTh>
                   <TableTh>Ảnh</TableTh>
@@ -296,6 +298,13 @@ export default function ReportManagementPage() {
                         </span>
                       </TableTd>
                       <TableTd className="text-zinc-300">{report.flood_level || '—'}</TableTd>
+                      <TableTd>
+                        {getReportConfidence(report) != null ? (
+                          <ConfidenceBadge report={report} />
+                        ) : (
+                          <span className="text-zinc-500">—</span>
+                        )}
+                      </TableTd>
                       <TableTd className="text-zinc-400 overflow-hidden">
                         <span className="block truncate" title={locationTitle}>
                           {locationText}
