@@ -6,6 +6,7 @@ import { reverseGeocode, getDisplayAddress } from '../utils/geocode';
 import { FaCheck, FaXmark, FaArrowsRotate, FaFilter, FaStar, FaGripVertical } from 'react-icons/fa6';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
 import ReportImage from '../components/ReportImage';
+import { useToast } from '../components/ui/Toast';
 import ConfidenceBadge from '../components/ConfidenceBadge';
 
 const FLOOD_LEVELS = ['Tất cả', 'Nặng', 'Trung bình', 'Nhẹ'];
@@ -368,17 +369,16 @@ function PendingMiniCard({ report, setDetailReport, setRejectModal, handleApprov
 }
 
 export default function ModerationPage() {
+  const { toast } = useToast();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
   const [rejectModal, setRejectModal] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [message, setMessage] = useState({ type: '', text: '' });
   const [filterLevel, setFilterLevel] = useState('Tất cả');
   const [searchText, setSearchText] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [photoModalUrl, setPhotoModalUrl] = useState(null);
-  const [rejectErrorToast, setRejectErrorToast] = useState('');
   const [dragOverLeft, setDragOverLeft] = useState(false);
   const [draggingId, setDraggingId] = useState(null);
   const [detailReport, setDetailReport] = useState(null);
@@ -418,38 +418,35 @@ export default function ModerationPage() {
 
   const handleApprove = useCallback(async (reportId) => {
     setProcessing(reportId);
-    setMessage({ type: '', text: '' });
     const result = await moderateReport(reportId, 'approve');
     setProcessing(null);
     if (result.success) {
-      setMessage({ type: 'success', text: result.message || 'Đã duyệt báo cáo' });
+      toast(result.message || 'Đã duyệt báo cáo', 'success');
       loadReports();
       setDetailReport((prev) => (prev?.id === reportId ? null : prev));
     } else {
-      setMessage({ type: 'error', text: result.error || 'Không thể duyệt' });
+      toast(result.error || 'Không thể duyệt', 'error');
     }
-  }, [loadReports]);
+  }, [loadReports, toast]);
 
   const handleRejectSubmit = async () => {
     if (!rejectModal) return;
     const reason = rejectReason.trim();
     if (!reason) {
-      setRejectErrorToast('Vui lòng nhập lý do từ chối');
+      toast('Vui lòng nhập lý do từ chối', 'error');
       return;
     }
-    setRejectErrorToast('');
     setProcessing(rejectModal.id);
-    setMessage({ type: '', text: '' });
     const result = await moderateReport(rejectModal.id, 'reject', reason);
     setProcessing(null);
     setRejectModal(null);
     setRejectReason('');
     if (result.success) {
-      setMessage({ type: 'success', text: result.message || 'Đã từ chối báo cáo' });
+      toast(result.message || 'Đã từ chối báo cáo', 'success');
       loadReports();
       setDetailReport((prev) => (prev?.id === rejectModal.id ? null : prev));
     } else {
-      setMessage({ type: 'error', text: result.error || 'Không thể từ chối' });
+      toast(result.error || 'Không thể từ chối', 'error');
     }
   };
 
@@ -594,16 +591,6 @@ export default function ModerationPage() {
         )}
       </div>
 
-      {message.text && (
-        <div
-          className={`mb-4 rounded-lg px-4 py-2 text-sm ${
-            message.type === 'success' ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40' : 'bg-red-500/20 text-red-200 border border-red-500/40'
-          }`}
-        >
-          {message.text}
-        </div>
-      )}
-
       {/* Layout 2 panel: trái = đã xử lý (drop zone), phải = chờ duyệt (draggable) */}
       <div className="flex gap-4 flex-col lg:flex-row">
         {/* Ô trái lớn: Báo cáo đã xử lý — drop card từ phải vào đây = duyệt */}
@@ -692,20 +679,6 @@ export default function ModerationPage() {
         />
       )}
 
-      {rejectErrorToast && (
-        <div className="fixed top-4 right-4 z-30 flex max-w-sm items-start gap-2 rounded-lg border border-red-300 bg-red-500 px-4 py-3 shadow-lg">
-          <p className="flex-1 text-sm font-medium text-black">{rejectErrorToast}</p>
-          <button
-            type="button"
-            onClick={() => setRejectErrorToast('')}
-            className="shrink-0 rounded p-0.5 text-black/80 hover:bg-red-600 hover:text-black"
-            aria-label="Đóng"
-          >
-            <FaXmark className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
       {rejectModal && (
         <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-md rounded-xl bg-dashboard-card border border-dashboard-border p-6 shadow-xl">
@@ -715,7 +688,6 @@ export default function ModerationPage() {
               value={rejectReason}
               onChange={(e) => {
                 setRejectReason(e.target.value);
-                if (rejectErrorToast) setRejectErrorToast('');
               }}
               placeholder="Nhập lý do..."
               rows={3}

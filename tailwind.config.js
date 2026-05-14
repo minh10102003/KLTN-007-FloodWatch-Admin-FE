@@ -7,16 +7,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        /** Snow UI Kit: main + right sidebar = #2D2D2D, left sidebar = #2C2C2C */
         dashboard: {
-          bg: '#2D2D2D',
-          surface: '#424242',
-          sidebar: '#2C2C2C',
-          card: '#2D2D2D',
-          border: '#404040',
-          muted: '#737373',
-          /** KPI cards: light like Snow UI */
+          bg: 'var(--admin-bg)',
+          surface: 'var(--admin-surface)',
+          sidebar: 'var(--admin-sidebar)',
+          card: 'var(--admin-card)',
+          border: 'var(--admin-border)',
+          muted: 'var(--admin-muted)',
           metricCard: '#EBEBF0',
+        },
+        admin: {
+          primary: 'var(--admin-primary)',
+          success: 'var(--admin-success)',
+          warning: 'var(--admin-warning)',
+          danger: 'var(--admin-danger)',
         },
       },
       fontFamily: {

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ComposedChart,
   Bar,
@@ -16,6 +17,16 @@ import { FaArrowsRotate, FaXmark } from 'react-icons/fa6';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
 import ReportImage from '../components/ReportImage';
 import ConfidenceBadge, { getReportConfidence } from '../components/ConfidenceBadge';
+import { formatAdminDateTime } from '../utils/formatDateTime';
+
+function formatFloodLevel(raw, t) {
+  if (raw == null || raw === '') return '—';
+  const s = String(raw).trim();
+  const lower = s.toLowerCase();
+  if (lower === 'nhẹ' || lower === 'light' || lower === 'low') return t('reports.severityLight');
+  if (lower === 'nặng' || lower === 'heavy' || lower === 'high') return t('reports.severityHeavy');
+  return s;
+}
 
 /** Độ rộng cột theo % — phân bổ đều, tránh cột Nội dung chiếm hết không gian */
 const REPORT_TABLE_COL_WIDTHS = [6, 11, 9, 9, 16, 22, 12, 15];
@@ -50,6 +61,8 @@ function getReportContent(report) {
 }
 
 export default function ReportManagementPage() {
+  const { t, i18n } = useTranslation();
+  const chartLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
   const [statsSummary, setStatsSummary] = useState({ pending: 0, approved: 0, rejected: 0, total: 0 });
   const [statsSummaryLoading, setStatsSummaryLoading] = useState(false);
   const [reportList, setReportList] = useState([]);
@@ -104,7 +117,7 @@ export default function ReportManagementPage() {
         count: s.count ?? 0,
         label:
           chartGroupBy === 'day'
-            ? new Date(s.period).toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric' })
+            ? new Date(s.period).toLocaleDateString(chartLocale, { day: 'numeric', month: 'numeric' })
             : s.period,
       }));
       setChartData(arr);
@@ -113,11 +126,11 @@ export default function ReportManagementPage() {
       setChartData([]);
       setChartError(
         res.status === 403
-          ? 'Bạn không có quyền xem thống kê theo thời gian (403). Backend có thể chỉ cho phép Moderator.'
-          : res.error || 'Không tải được dữ liệu thống kê.'
+          ? t('reports.err403Stats')
+          : res.error || t('reports.errStatsGeneric')
       );
     }
-  }, [chartGroupBy]);
+  }, [chartGroupBy, chartLocale, t]);
 
   useEffect(() => {
     loadStatsSummary();
@@ -141,14 +154,14 @@ export default function ReportManagementPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-zinc-100">Quản lý báo cáo</h1>
+        <h1 className="text-2xl font-semibold text-zinc-100">{t('reports.title')}</h1>
         <button
           type="button"
           onClick={refreshAll}
           disabled={statsSummaryLoading || chartLoading}
           className="flex items-center gap-2 rounded-lg border border-dashboard-border bg-dashboard-card px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-dashboard-surface disabled:opacity-50"
         >
-          <FaArrowsRotate /> Làm mới
+          <FaArrowsRotate /> {t('reports.refresh')}
         </button>
       </div>
 
@@ -159,25 +172,25 @@ export default function ReportManagementPage() {
               <span className="text-2xl font-bold text-zinc-100">
                 {statsSummaryLoading ? '—' : statsSummary.pending}
               </span>
-              <span className="mt-1 text-sm text-zinc-400">Chờ duyệt</span>
+              <span className="mt-1 text-sm text-zinc-400">{t('reports.statsPending')}</span>
             </div>
             <div className="flex flex-col border-l border-dashboard-border pl-4 md:pl-6">
               <span className="text-2xl font-bold text-zinc-100">
                 {statsSummaryLoading ? '—' : statsSummary.approved}
               </span>
-              <span className="mt-1 text-sm text-zinc-400">Đã duyệt</span>
+              <span className="mt-1 text-sm text-zinc-400">{t('reports.statsApproved')}</span>
             </div>
             <div className="flex flex-col border-l border-dashboard-border pl-4 md:pl-6">
               <span className="text-2xl font-bold text-zinc-100">
                 {statsSummaryLoading ? '—' : statsSummary.rejected}
               </span>
-              <span className="mt-1 text-sm text-zinc-400">Đã từ chối</span>
+              <span className="mt-1 text-sm text-zinc-400">{t('reports.statsRejected')}</span>
             </div>
             <div className="flex flex-col border-l border-dashboard-border pl-4 md:pl-6">
               <span className="text-2xl font-bold text-zinc-100">
                 {statsSummaryLoading ? '—' : statsSummary.total}
               </span>
-              <span className="mt-1 text-sm text-zinc-400">Tổng báo cáo</span>
+              <span className="mt-1 text-sm text-zinc-400">{t('reports.statsTotal')}</span>
             </div>
           </div>
         </div>
@@ -185,34 +198,34 @@ export default function ReportManagementPage() {
         <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm text-zinc-400">Thống kê</p>
-              <h2 className="text-lg font-semibold text-zinc-100">Báo cáo theo thời gian</h2>
+              <p className="text-sm text-zinc-400">{t('reports.chartCaption')}</p>
+              <h2 className="text-lg font-semibold text-zinc-100">{t('reports.chartTitle')}</h2>
             </div>
             <Menu>
               <MenuTrigger
                 render={
                   <button type="button" className="flex items-center gap-2 rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-500">
-                    {chartGroupBy === 'week' ? 'Theo tuần (4 tuần)' : 'Theo ngày (7 ngày)'}
+                    {chartGroupBy === 'week' ? t('reports.groupByWeek') : t('reports.groupByDay')}
                     <ChevronDown className="h-4 w-4 text-zinc-400" />
                   </button>
                 }
               />
               <MenuPanel className="min-w-[12rem]" align="end" sideOffset={4}>
-                <MenuItem onSelect={() => setChartGroupBy('day')}>Theo ngày (7 ngày)</MenuItem>
-                <MenuItem onSelect={() => setChartGroupBy('week')}>Theo tuần (4 tuần)</MenuItem>
+                <MenuItem onSelect={() => setChartGroupBy('day')}>{t('reports.groupByDay')}</MenuItem>
+                <MenuItem onSelect={() => setChartGroupBy('week')}>{t('reports.groupByWeek')}</MenuItem>
               </MenuPanel>
             </Menu>
           </div>
           {chartLoading ? (
-            <div className="flex h-64 items-center justify-center text-zinc-400">Đang tải...</div>
+            <div className="flex h-64 items-center justify-center text-zinc-400">{t('reports.loading')}</div>
           ) : chartError ? (
             <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/20 p-4 text-center text-sm text-amber-200">
-              <p className="font-medium">Không tải được biểu đồ</p>
+              <p className="font-medium">{t('reports.chartErrorTitle')}</p>
               <p>{chartError}</p>
-              <p className="text-xs text-amber-300">Cần backend cho phép role Admin gọi GET /api/stats/reports.</p>
+              <p className="text-xs text-amber-300">{t('reports.chartBackendHint')}</p>
             </div>
           ) : chartData.length === 0 ? (
-            <div className="flex h-64 items-center justify-center text-zinc-400">Chưa có dữ liệu</div>
+            <div className="flex h-64 items-center justify-center text-zinc-400">{t('reports.noChartData')}</div>
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -231,10 +244,10 @@ export default function ReportManagementPage() {
                 />
                 <Tooltip
                   contentStyle={{ borderRadius: 8, border: '1px solid #404040', backgroundColor: '#27272a', color: '#f4f4f5' }}
-                  formatter={(value) => [value, 'Số báo cáo']}
-                  labelFormatter={(label) => `Thời gian: ${label}`}
+                  formatter={(value) => [value, t('reports.tooltipReportCount')]}
+                  labelFormatter={(label) => t('reports.tooltipTime', { label })}
                 />
-                <Bar dataKey="count" fill="#7c3aed" radius={[4, 4, 0, 0]} maxBarSize={48} name="Số báo cáo" />
+                <Bar dataKey="count" fill="#7c3aed" radius={[4, 4, 0, 0]} maxBarSize={48} name={t('reports.tooltipReportCount')} />
                 <Line
                   type="monotone"
                   dataKey="count"
@@ -243,7 +256,7 @@ export default function ReportManagementPage() {
                   strokeDasharray="4 4"
                   dot={{ fill: '#7c3aed', r: 4 }}
                   activeDot={{ r: 5 }}
-                  name="Xu hướng"
+                  name={t('reports.trendLine')}
                 />
               </ComposedChart>
             </ResponsiveContainer>
@@ -253,32 +266,36 @@ export default function ReportManagementPage() {
         {/* Bảng danh sách báo cáo (chỉ xem, không phê duyệt) */}
         <div className="rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden">
           <div className="border-b border-dashboard-border bg-dashboard-surface px-4 py-3">
-            <h2 className="text-lg font-semibold text-zinc-100">Danh sách báo cáo</h2>
-            <p className="text-sm text-zinc-400 mt-0.5">Chỉ xem, không thao tác duyệt/từ chối</p>
+            <h2 className="text-lg font-semibold text-zinc-100">{t('reports.tableTitle')}</h2>
+            <p className="text-sm text-zinc-400 mt-0.5">{t('reports.tableSubtitle')}</p>
           </div>
           {statsSummaryLoading ? (
-            <div className="p-8 text-center text-zinc-400">Đang tải...</div>
+            <div className="p-8 text-center text-zinc-400">{t('reports.loading')}</div>
           ) : sortedReports.length === 0 ? (
-            <div className="p-8 text-center text-zinc-400">Chưa có báo cáo nào</div>
+            <div className="p-8 text-center text-zinc-400">{t('reports.noReports')}</div>
           ) : (
             <Table colWidths={REPORT_TABLE_COL_WIDTHS}>
               <TableHead>
                 <TableRow>
-                  <TableTh>ID</TableTh>
-                  <TableTh>Trạng thái</TableTh>
-                  <TableTh>Mức độ</TableTh>
-                  <TableTh>Tin cậy</TableTh>
-                  <TableTh>Địa điểm</TableTh>
-                  <TableTh>Nội dung</TableTh>
-                  <TableTh>Ảnh</TableTh>
-                  <TableTh>Ngày tạo</TableTh>
+                  <TableTh>{t('reports.colId')}</TableTh>
+                  <TableTh>{t('reports.colStatus')}</TableTh>
+                  <TableTh>{t('reports.colSeverity')}</TableTh>
+                  <TableTh>{t('reports.colConfidence')}</TableTh>
+                  <TableTh>{t('reports.colLocation')}</TableTh>
+                  <TableTh>{t('reports.colContent')}</TableTh>
+                  <TableTh>{t('reports.colImage')}</TableTh>
+                  <TableTh>{t('reports.colCreated')}</TableTh>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {sortedReports.map((report) => {
                   const status = getReportStatus(report);
                   const statusLabel =
-                    status === 'pending' ? 'Chờ duyệt' : status === 'approved' ? 'Đã duyệt' : 'Đã từ chối';
+                    status === 'pending'
+                      ? t('reports.statusPending')
+                      : status === 'approved'
+                        ? t('reports.statusApproved')
+                        : t('reports.statusRejected');
                   const statusClass =
                     status === 'pending'
                       ? 'bg-amber-500/30 text-amber-200'
@@ -297,7 +314,7 @@ export default function ReportManagementPage() {
                           {statusLabel}
                         </span>
                       </TableTd>
-                      <TableTd className="text-zinc-300">{report.flood_level || '—'}</TableTd>
+                      <TableTd className="text-zinc-300">{formatFloodLevel(report.flood_level, t)}</TableTd>
                       <TableTd>
                         {getReportConfidence(report) != null ? (
                           <ConfidenceBadge report={report} />
@@ -337,7 +354,7 @@ export default function ReportManagementPage() {
                         )}
                       </TableTd>
                       <TableTd className="text-zinc-400 whitespace-nowrap">
-                        {report.created_at ? new Date(report.created_at).toLocaleString('vi-VN') : '—'}
+                        {report.created_at ? formatAdminDateTime(report.created_at, i18n.language?.startsWith('en') ? 'en' : 'vi') : '—'}
                       </TableTd>
                     </TableRow>
                   );
@@ -355,7 +372,7 @@ export default function ReportManagementPage() {
           role="button"
           tabIndex={0}
           onKeyDown={(e) => e.key === 'Escape' && setPhotoModalUrl(null)}
-          aria-label="Đóng"
+          aria-label={t('common.closeAria')}
         >
           <div className="relative">
             <button
@@ -365,13 +382,13 @@ export default function ReportManagementPage() {
                 setPhotoModalUrl(null);
               }}
               className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-dashboard-card border border-dashboard-border text-zinc-300 shadow-md hover:bg-white/10 hover:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              aria-label="Đóng ảnh"
+              aria-label={t('common.closeImageAria')}
             >
               <FaXmark className="h-5 w-5" />
             </button>
             <ReportImage
               src={photoModalUrl}
-              alt="Ảnh báo cáo"
+              alt={t('reports.reportImageAlt')}
               className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-xl"
               onClick={(e) => e.stopPropagation()}
             />

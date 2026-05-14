@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FaArrowsRotate } from 'react-icons/fa6';
 import { getFusionPoints } from '../services/api';
 import { Table, TableBody, TableHead, TableRow, TableTh, TableTd } from '../components/ui/Table';
+import { formatAdminDateTime } from '../utils/formatDateTime';
+import { useToast } from '../components/ui/Toast';
 
 const defaultBbox = {
   min_lng: '106.60',
@@ -10,8 +13,12 @@ const defaultBbox = {
   max_lat: '10.95',
 };
 
-/** A1 — Điểm fusion (crowd + sensor). Admin/Mod xem nội bộ; user app có thể dùng cùng API trên bản đồ. */
+const BBOX_KEYS = ['min_lng', 'max_lng', 'min_lat', 'max_lat'];
+
 export default function FusionPointsPage() {
+  const { t, i18n } = useTranslation();
+  const { toast } = useToast();
+  const lng = i18n.language?.startsWith('en') ? 'en' : 'vi';
   const [bbox, setBbox] = useState(defaultBbox);
   const [crowdHours, setCrowdHours] = useState(72);
   const [sensorHours, setSensorHours] = useState(6);
@@ -20,11 +27,9 @@ export default function FusionPointsPage() {
   const [crowd, setCrowd] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const load = async () => {
     setLoading(true);
-    setError('');
     const res = await getFusionPoints({
       crowd_hours: crowdHours,
       sensor_hours: sensorHours,
@@ -43,22 +48,22 @@ export default function FusionPointsPage() {
       setSensors([]);
       setCrowd([]);
       setMeta(null);
-      setError(res.error || 'Không tải được (kiểm tra bbox và quyền).');
+      toast(t('fusion.loadError'), 'error');
     }
   };
+
+  const fusionParams = meta?.fusion_params;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-100">Fusion điểm (A1)</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          So sánh crowd_only vs fused theo vùng bbox. Tham số fusion server đọc từ env (FUSION_*), không chỉnh trên FE.
-        </p>
+        <h1 className="text-2xl font-semibold text-zinc-100">{t('fusion.title')}</h1>
+        <p className="mt-1 text-sm text-zinc-500">{t('fusion.subtitle')}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 rounded-xl border border-dashboard-border bg-dashboard-card p-4 md:grid-cols-6">
         <label className="text-xs text-zinc-400 md:col-span-1">
-          crowd_hours
+          <span className="block text-zinc-300">{t('fusion.crowdHours')}</span>
           <input
             type="number"
             value={crowdHours}
@@ -67,7 +72,7 @@ export default function FusionPointsPage() {
           />
         </label>
         <label className="text-xs text-zinc-400 md:col-span-1">
-          sensor_hours
+          <span className="block text-zinc-300">{t('fusion.sensorHours')}</span>
           <input
             type="number"
             value={sensorHours}
@@ -75,9 +80,9 @@ export default function FusionPointsPage() {
             className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-2 py-1.5 text-sm text-zinc-100"
           />
         </label>
-        {['min_lng', 'max_lng', 'min_lat', 'max_lat'].map((k) => (
+        {BBOX_KEYS.map((k) => (
           <label key={k} className="text-xs text-zinc-400">
-            {k}
+            <span className="block text-zinc-300">{t(`fusion.${k}`)}</span>
             <input
               value={bbox[k]}
               onChange={(e) => setBbox((b) => ({ ...b, [k]: e.target.value }))}
@@ -87,7 +92,7 @@ export default function FusionPointsPage() {
         ))}
         <label className="flex items-end gap-2 text-sm text-zinc-300 md:col-span-2">
           <input type="checkbox" checked={includeSensors} onChange={(e) => setIncludeSensors(e.target.checked)} />
-          Gồm lớp sensor
+          {t('fusion.includeSensors')}
         </label>
       </div>
 
@@ -98,7 +103,7 @@ export default function FusionPointsPage() {
           disabled={loading}
           className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
         >
-          {loading ? 'Đang tải...' : 'Tải fusion'}
+          {loading ? t('common.loading') : t('fusion.loadFusion')}
         </button>
         <button
           type="button"
@@ -106,37 +111,36 @@ export default function FusionPointsPage() {
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-lg border border-dashboard-border px-3 py-2 text-sm text-zinc-300 hover:bg-white/5"
         >
-          <FaArrowsRotate /> Retry
+          <FaArrowsRotate /> {t('common.retry')}
         </button>
       </div>
 
-      {meta?.fusion_params && (
+      {fusionParams && (
         <p className="text-xs text-zinc-500">
-          Fusion params (server): rMaxM={meta.fusion_params.rMaxM}, decayDistM={meta.fusion_params.decayDistM},
-          disagreeScaleCm={meta.fusion_params.disagreeScaleCm}
+          {t('fusion.fusionParamsHint', {
+            rMaxM: fusionParams.rMaxM ?? '—',
+            decayDistM: fusionParams.decayDistM ?? '—',
+            disagreeScaleCm: fusionParams.disagreeScaleCm ?? '—',
+          })}
         </p>
       )}
 
-      {error && (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/15 px-4 py-3 text-sm text-red-200">{error}</div>
-      )}
-
-      <section className="rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden">
+      <section className="overflow-hidden rounded-xl border border-dashboard-border bg-dashboard-card">
         <div className="border-b border-dashboard-border bg-dashboard-surface px-4 py-3">
-          <h2 className="text-lg font-medium text-zinc-100">Crowd (đã duyệt trong cửa sổ)</h2>
-          <p className="text-xs text-zinc-500">{crowd.length} điểm</p>
+          <h2 className="text-lg font-medium text-zinc-100">{t('fusion.crowdSection')}</h2>
+          <p className="text-xs text-zinc-500">{t('common.pointCount', { count: crowd.length })}</p>
         </div>
         <Table colWidths={[8, 12, 12, 12, 14, 14, 18, 10]}>
           <TableHead>
             <TableRow className="hover:bg-transparent">
               <TableTh>#</TableTh>
-              <TableTh>report</TableTh>
-              <TableTh>coverage</TableTh>
-              <TableTh>crowd cm</TableTh>
-              <TableTh>fused cm</TableTh>
-              <TableTh>sensor gần</TableTh>
-              <TableTh>Trọng số (s/c)</TableTh>
-              <TableTh>Thời gian</TableTh>
+              <TableTh>{t('fusion.colReport')}</TableTh>
+              <TableTh>{t('fusion.colCoverage')}</TableTh>
+              <TableTh>{t('fusion.colCrowdCm')}</TableTh>
+              <TableTh>{t('fusion.colFusedCm')}</TableTh>
+              <TableTh>{t('fusion.colNearestSensor')}</TableTh>
+              <TableTh>{t('fusion.colWeights')}</TableTh>
+              <TableTh>{t('fusion.colTime')}</TableTh>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -149,38 +153,42 @@ export default function FusionPointsPage() {
                 <TableTd>{c.fused_cm}</TableTd>
                 <TableTd className="text-xs text-zinc-400">
                   {c.nearest_sensor
-                    ? `${c.nearest_sensor.sensor_id} · ${c.nearest_sensor.water_level_cm}cm · ${c.nearest_sensor.distance_m}m`
+                    ? t('fusion.nearestSensorLine', {
+                        id: c.nearest_sensor.sensor_id,
+                        cm: c.nearest_sensor.water_level_cm,
+                        m: c.nearest_sensor.distance_m,
+                      })
                     : '—'}
                 </TableTd>
                 <TableTd className="text-xs">
                   {c.weights ? `${c.weights.sensor} / ${c.weights.crowd}` : '—'}
                 </TableTd>
                 <TableTd className="text-xs text-zinc-500">
-                  {c.created_at ? new Date(c.created_at).toLocaleString('vi-VN') : '—'}
+                  {formatAdminDateTime(c.created_at, lng)}
                 </TableTd>
               </TableRow>
             ))}
           </TableBody>
         </Table>
         {crowd.length === 0 && !loading && (
-          <p className="p-4 text-center text-sm text-zinc-500">Chưa có dữ liệu — bấm Tải fusion.</p>
+          <p className="p-4 text-center text-sm text-zinc-500">{t('fusion.emptyCrowd')}</p>
         )}
       </section>
 
       {includeSensors && (
-        <section className="rounded-xl border border-dashboard-border bg-dashboard-card overflow-hidden">
+        <section className="overflow-hidden rounded-xl border border-dashboard-border bg-dashboard-card">
           <div className="border-b border-dashboard-border bg-dashboard-surface px-4 py-3">
-            <h2 className="text-lg font-medium text-zinc-100">Sensor (log gần nhất)</h2>
-            <p className="text-xs text-zinc-500">{sensors.length} điểm</p>
+            <h2 className="text-lg font-medium text-zinc-100">{t('fusion.sensorSection')}</h2>
+            <p className="text-xs text-zinc-500">{t('common.pointCount', { count: sensors.length })}</p>
           </div>
           <Table colWidths={[8, 22, 16, 16, 38]}>
             <TableHead>
               <TableRow className="hover:bg-transparent">
                 <TableTh>#</TableTh>
-                <TableTh>sensor_id</TableTh>
-                <TableTh>mực (cm)</TableTh>
-                <TableTh>status</TableTh>
-                <TableTh>Thời gian log</TableTh>
+                <TableTh>{t('fusion.colSensorCode')}</TableTh>
+                <TableTh>{t('fusion.colWaterCm')}</TableTh>
+                <TableTh>{t('fusion.colStatus')}</TableTh>
+                <TableTh>{t('fusion.colLogTime')}</TableTh>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -191,7 +199,7 @@ export default function FusionPointsPage() {
                   <TableTd>{s.water_level_sensor_only_cm ?? '—'}</TableTd>
                   <TableTd className="text-xs">{s.log_status || '—'}</TableTd>
                   <TableTd className="text-xs text-zinc-500">
-                    {s.log_created_at ? new Date(s.log_created_at).toLocaleString('vi-VN') : '—'}
+                    {formatAdminDateTime(s.log_created_at, lng)}
                   </TableTd>
                 </TableRow>
               ))}

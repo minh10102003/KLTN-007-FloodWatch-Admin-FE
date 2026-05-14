@@ -145,7 +145,7 @@ export const login = async (username, password) => {
       localStorage.setItem('user', JSON.stringify(d.user));
       return { success: true, user: d.user };
     }
-    return { success: false, error: data?.error || 'Đăng nhập thất bại' };
+    return { success: false, error: 'Tên đăng nhập hoặc mật khẩu không đúng' };
   } catch (err) {
     // Nếu login lần đầu gặp lỗi mạng, thử lại với fallback domain trước khi trả lỗi cho UI.
     if (!err.response && hasFallbackBaseUrl) {
@@ -170,18 +170,20 @@ export const login = async (username, password) => {
     }
 
     const status = err.response?.status;
-    const msg =
-      err.response?.data?.error ||
-      err.response?.data?.message ||
-      (err.code === 'ERR_NETWORK'
-        ? 'Khong the ket noi den may chu API. Vui long kiem tra mang hoac thu lai sau.'
-        : null) ||
-      err.message ||
-      'Đăng nhập thất bại';
-    if (status === 403) {
-      return { success: false, error: msg, needsEmailVerification: true };
+    if (!err.response && (err.code === 'ERR_NETWORK' || err.message === 'Network Error')) {
+      return { success: false, error: 'Đã xảy ra lỗi. Vui lòng thử lại.' };
     }
-    return { success: false, error: msg };
+    if (status === 403) {
+      return {
+        success: false,
+        error: 'Tài khoản chưa xác minh hoặc không có quyền. Liên hệ quản trị viên.',
+        needsEmailVerification: true,
+      };
+    }
+    if (status === 401 || status === 404) {
+      return { success: false, error: 'Tên đăng nhập hoặc mật khẩu không đúng' };
+    }
+    return { success: false, error: 'Tên đăng nhập hoặc mật khẩu không đúng' };
   }
 };
 

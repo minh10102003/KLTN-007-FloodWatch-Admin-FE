@@ -1,7 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FaArrowsRotate, FaDownload, FaFlaskVial } from 'react-icons/fa6';
+import { useTranslation } from 'react-i18next';
+import { FaFlaskVial } from 'react-icons/fa6';
+import { Droplets } from 'lucide-react';
 import { getResearchColdStartHotspots, getResearchEvaluation } from '../services/api';
 import { Table, TableBody, TableHead, TableRow, TableTh, TableTd } from '../components/ui/Table';
+import ResearchFilters from '../components/admin/ResearchFilters';
+import { MetricCard } from '../components/common/MetricCard';
+import { EmptyState } from '../components/common/EmptyState';
+import { TableSkeleton } from '../components/common/TableSkeleton';
+import { formatMetersToKm } from '../utils/formatters';
+import { formatAdminDateTime } from '../utils/formatDateTime';
+import i18n from '../i18n/config';
+import { useToast } from '../components/ui/Toast';
 
 const defaultFilters = {
   crowd_hours: 72,
@@ -30,13 +40,14 @@ const pctImprovement = (baseline, fused) => {
 const fmt = (v, digits = 2) => (v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(digits));
 
 export default function ResearchAnalyticsPage() {
+  const { t, i18n: i18nReact } = useTranslation();
+  const { toast } = useToast();
   const [filters, setFilters] = useState(defaultFilters);
   const [evaluation, setEvaluation] = useState(null);
   const [evaluationMeta, setEvaluationMeta] = useState(null);
   const [hotspots, setHotspots] = useState([]);
   const [hotspotsMeta, setHotspotsMeta] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   const queryCommonBbox = {
@@ -48,7 +59,6 @@ export default function ResearchAnalyticsPage() {
 
   const load = async () => {
     setLoading(true);
-    setError('');
     const [d1, d2] = await Promise.all([
       getResearchEvaluation({
         crowd_hours: Number(filters.crowd_hours),
@@ -71,7 +81,7 @@ export default function ResearchAnalyticsPage() {
     } else {
       setEvaluation(null);
       setEvaluationMeta(null);
-      setError((prev) => prev || d1.error || 'Không tải được dữ liệu D1');
+      toast(i18n.t('common.errorGeneric'), 'error');
     }
 
     if (d2.success) {
@@ -81,7 +91,7 @@ export default function ResearchAnalyticsPage() {
     } else {
       setHotspots([]);
       setHotspotsMeta(null);
-      setError((prev) => prev || d2.error || 'Không tải được dữ liệu D2');
+      toast(i18n.t('common.errorGeneric'), 'error');
     }
   };
 
@@ -91,7 +101,6 @@ export default function ResearchAnalyticsPage() {
     setEvaluationMeta(null);
     setHotspots([]);
     setHotspotsMeta(null);
-    setError('');
     setLoaded(false);
   };
 
@@ -105,10 +114,10 @@ export default function ResearchAnalyticsPage() {
     const q40 = values[Math.max(0, Math.floor(values.length * 0.4) - 1)] ?? values[0] ?? 0;
     const q80 = values[Math.max(0, Math.floor(values.length * 0.8) - 1)] ?? values[values.length - 1] ?? 0;
     return scored.map((s) => {
-      let level = 'Thấp';
-      if (s.priority_score >= q80) level = 'Cao';
-      else if (s.priority_score >= q40) level = 'Trung bình';
-      return { ...s, priority_level: level };
+      let levelKey = 'low';
+      if (s.priority_score >= q80) levelKey = 'high';
+      else if (s.priority_score >= q40) levelKey = 'medium';
+      return { ...s, priority_level_key: levelKey };
     });
   }, [hotspots]);
 
@@ -139,7 +148,7 @@ export default function ResearchAnalyticsPage() {
       String(h.nearest_sensor_min_dist_m ?? ''),
       String(h.latest_report_at ?? ''),
       String(h.priority_score ?? ''),
-      h.priority_level ?? '',
+      h.priority_level_key ?? '',
     ]);
     const csv = [header, ...rows].map((row) => row.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -156,203 +165,120 @@ export default function ResearchAnalyticsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const crowdH = evaluationMeta?.crowd_report_hours ?? filters.crowd_hours;
+  const sensorH = evaluationMeta?.sensor_log_hours ?? filters.sensor_hours;
+  const reportH = hotspotsMeta?.report_hours ?? filters.report_hours;
+  const radiusM = hotspotsMeta?.no_sensor_radius_m ?? filters.no_sensor_radius_m;
+  const lng = i18nReact.language?.startsWith('en') ? 'en' : 'vi';
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-zinc-100">Research Analytics</h1>
-        <p className="text-xs text-zinc-500">
-          D1: MAE/RMSE/Bias (crowd_only vs fused) · D2: cold-start hotspots
-        </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-zinc-100">{t('research.title')}</h1>
+          <p className="mt-1 text-sm text-zinc-500">{t('research.subtitle')}</p>
+        </div>
       </div>
 
-      <section className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <label className="text-sm text-zinc-300">
-            crowd_hours
-            <input
-              type="number"
-              min={1}
-              value={filters.crowd_hours}
-              onChange={(e) => setFilters((f) => ({ ...f, crowd_hours: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
-            />
-          </label>
-          <label className="text-sm text-zinc-300">
-            sensor_hours
-            <input
-              type="number"
-              min={1}
-              value={filters.sensor_hours}
-              onChange={(e) => setFilters((f) => ({ ...f, sensor_hours: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
-            />
-          </label>
-          <label className="text-sm text-zinc-300">
-            report_hours
-            <input
-              type="number"
-              min={1}
-              value={filters.report_hours}
-              onChange={(e) => setFilters((f) => ({ ...f, report_hours: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
-            />
-          </label>
-          <label className="text-sm text-zinc-300">
-            no_sensor_radius_m
-            <input
-              type="number"
-              min={100}
-              value={filters.no_sensor_radius_m}
-              onChange={(e) => setFilters((f) => ({ ...f, no_sensor_radius_m: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
-            />
-          </label>
-          <label className="text-sm text-zinc-300">
-            min_reports
-            <input
-              type="number"
-              min={1}
-              value={filters.min_reports}
-              onChange={(e) => setFilters((f) => ({ ...f, min_reports: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
-            />
-          </label>
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <label className="text-sm text-zinc-300">
-            min_lng
-            <input
-              type="number"
-              step="any"
-              value={filters.min_lng}
-              onChange={(e) => setFilters((f) => ({ ...f, min_lng: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
-            />
-          </label>
-          <label className="text-sm text-zinc-300">
-            max_lng
-            <input
-              type="number"
-              step="any"
-              value={filters.max_lng}
-              onChange={(e) => setFilters((f) => ({ ...f, max_lng: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
-            />
-          </label>
-          <label className="text-sm text-zinc-300">
-            min_lat
-            <input
-              type="number"
-              step="any"
-              value={filters.min_lat}
-              onChange={(e) => setFilters((f) => ({ ...f, min_lat: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
-            />
-          </label>
-          <label className="text-sm text-zinc-300">
-            max_lat
-            <input
-              type="number"
-              step="any"
-              value={filters.max_lat}
-              onChange={(e) => setFilters((f) => ({ ...f, max_lat: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
-            />
-          </label>
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
-          >
-            {loading ? 'Đang tải...' : 'Áp dụng'}
-          </button>
-          <button
-            type="button"
-            onClick={reset}
-            className="rounded-lg border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm text-zinc-200 hover:bg-white/10"
-          >
-            Reset
-          </button>
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={!hotspotsWithPriority.length}
-            className="inline-flex items-center gap-2 rounded-lg border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-50"
-          >
-            <FaDownload /> Xuất CSV
-          </button>
-          {loaded && (
-            <button
-              type="button"
-              onClick={load}
-              disabled={loading}
-              className="inline-flex items-center gap-2 rounded-lg border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-50"
-            >
-              <FaArrowsRotate /> Retry
-            </button>
-          )}
-        </div>
-      </section>
-
-      {error && (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/15 px-4 py-3 text-sm text-red-200">
-          {error}
-        </div>
-      )}
+      <ResearchFilters
+        filters={filters}
+        setFilters={setFilters}
+        onApply={load}
+        onReset={reset}
+        loading={loading}
+        onExportCsv={exportCsv}
+        exportDisabled={!hotspotsWithPriority.length}
+        onRetry={load}
+        loaded={loaded}
+      />
 
       <section className="grid grid-cols-1 gap-3 xl:grid-cols-4">
         <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
-          <p className="text-xs text-zinc-500">Sample count</p>
-          <p className="mt-1 text-2xl font-semibold">{evaluation?.sample_count ?? '—'}</p>
-          <p className="mt-2 text-xs text-zinc-500">
-            crowd_hours: {evaluationMeta?.crowd_report_hours ?? filters.crowd_hours}, sensor_hours:{' '}
-            {evaluationMeta?.sensor_log_hours ?? filters.sensor_hours}
+          <p className="text-xs font-medium text-zinc-500">{t('research.sampleCount')}</p>
+          <p className="mt-1 text-2xl font-semibold text-zinc-100">{evaluation?.sample_count ?? '—'}</p>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+            {t('research.summaryHours', { crowd: crowdH, sensor: sensorH })}
           </p>
         </div>
-        <MetricCard
-          label="MAE (cm)"
-          baseline={evaluation?.baseline_crowd_only?.mae_cm}
-          fused={evaluation?.fused_model?.mae_cm}
-          improvement={maeImprovement}
-        />
-        <MetricCard
-          label="RMSE (cm)"
-          baseline={evaluation?.baseline_crowd_only?.rmse_cm}
-          fused={evaluation?.fused_model?.rmse_cm}
-          improvement={rmseImprovement}
-        />
-        <MetricCard
-          label="Bias (cm)"
-          baseline={evaluation?.baseline_crowd_only?.bias_cm}
-          fused={evaluation?.fused_model?.bias_cm}
-          improvement={null}
-        />
+        {loading && !evaluation ? (
+          <>
+            <div className="h-28 animate-pulse rounded-xl border border-dashboard-border bg-dashboard-surface/60" />
+            <div className="h-28 animate-pulse rounded-xl border border-dashboard-border bg-dashboard-surface/60" />
+            <div className="h-28 animate-pulse rounded-xl border border-dashboard-border bg-dashboard-surface/60" />
+          </>
+        ) : (
+          <>
+            <MetricCard
+              metricHelp="mae"
+              label={t('research.metricMae')}
+              baseline={evaluation?.baseline_crowd_only?.mae_cm}
+              fused={evaluation?.fused_model?.mae_cm}
+              improvement={maeImprovement}
+            />
+            <MetricCard
+              metricHelp="rmse"
+              label={t('research.metricRmse')}
+              baseline={evaluation?.baseline_crowd_only?.rmse_cm}
+              fused={evaluation?.fused_model?.rmse_cm}
+              improvement={rmseImprovement}
+            />
+            <MetricCard
+              metricHelp="bias"
+              label={t('research.metricBias')}
+              baseline={evaluation?.baseline_crowd_only?.bias_cm}
+              fused={evaluation?.fused_model?.bias_cm}
+              improvement={null}
+            />
+          </>
+        )}
       </section>
 
       <section className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-medium text-zinc-100">D2 Cold-start Hotspots</h2>
-          <span className="text-xs text-zinc-500">
-            report_hours: {hotspotsMeta?.report_hours ?? filters.report_hours}, radius:{' '}
-            {hotspotsMeta?.no_sensor_radius_m ?? filters.no_sensor_radius_m}m
-          </span>
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-medium text-zinc-100">{t('research.d2Title')}</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              {t('research.d2Subtitle', { hours: reportH, radius: formatMetersToKm(radiusM) })}
+            </p>
+          </div>
         </div>
 
         {!loaded ? (
-          <div className="rounded-lg border border-dashboard-border bg-dashboard-surface p-8 text-center text-zinc-400">
-            Chọn bộ lọc và bấm <strong>Áp dụng</strong> để tải dữ liệu research.
-          </div>
-        ) : !loading && hotspotsWithPriority.length === 0 ? (
-          <div className="rounded-lg border border-dashboard-border bg-dashboard-surface p-8 text-center text-zinc-400">
-            <FaFlaskVial className="mx-auto mb-2 h-8 w-8 text-zinc-500" />
-            <p className="font-medium">Chưa đủ dữ liệu trong khoảng thời gian đã chọn</p>
-            <p className="text-sm">Thử tăng report_hours hoặc giảm min_reports để lấy thêm hotspot.</p>
-          </div>
+          loading ? (
+            <TableSkeleton rows={8} cols={9} />
+          ) : (
+            <EmptyState
+              icon={<FaFlaskVial />}
+              title={t('research.notLoadedTitle')}
+              description={t('research.notLoadedHint')}
+              action={
+                <button
+                  type="button"
+                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                  className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
+                >
+                  {t('research.adjustFilters')}
+                </button>
+              }
+            />
+          )
+        ) : loading ? (
+          <TableSkeleton rows={8} cols={9} />
+        ) : !hotspotsWithPriority.length ? (
+          <EmptyState
+            icon={<Droplets className="mx-auto h-12 w-12" />}
+            title={t('research.emptyData')}
+            description={t('research.emptyHint')}
+            action={
+              <button
+                type="button"
+                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
+              >
+                {t('research.adjustFilters')}
+              </button>
+            }
+          />
         ) : (
           <Table
             colWidths={[5, 15, 10, 12, 12, 16, 10, 10, 10]}
@@ -361,24 +287,25 @@ export default function ResearchAnalyticsPage() {
             <TableHead>
               <TableRow className="hover:bg-transparent">
                 <TableTh>#</TableTh>
-                <TableTh>Tọa độ</TableTh>
-                <TableTh>Report</TableTh>
-                <TableTh>Avg (cm)</TableTh>
-                <TableTh>Max (cm)</TableTh>
-                <TableTh>Nearest sensor (m)</TableTh>
-                <TableTh>Priority</TableTh>
-                <TableTh>Score</TableTh>
-                <TableTh>Mới nhất</TableTh>
+                <TableTh>{t('research.tableCoord')}</TableTh>
+                <TableTh>{t('research.tableReports')}</TableTh>
+                <TableTh>{t('research.tableAvgCm')}</TableTh>
+                <TableTh>{t('research.tableMaxCm')}</TableTh>
+                <TableTh>{t('research.tableNearestM')}</TableTh>
+                <TableTh>{t('research.tablePriority')}</TableTh>
+                <TableTh>{t('research.tableScore')}</TableTh>
+                <TableTh>{t('research.tableLatest')}</TableTh>
               </TableRow>
             </TableHead>
             <TableBody>
               {hotspotsWithPriority.map((h, idx) => {
+                const levelKey = h.priority_level_key || 'low';
                 const levelClass =
-                  h.priority_level === 'Cao'
-                    ? 'bg-red-100 text-red-800'
-                    : h.priority_level === 'Trung bình'
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'bg-slate-100 text-slate-800';
+                  levelKey === 'high'
+                    ? 'bg-red-500/20 text-red-200 border border-red-500/30'
+                    : levelKey === 'medium'
+                      ? 'bg-amber-500/15 text-amber-100 border border-amber-500/25'
+                      : 'bg-zinc-700/40 text-zinc-300 border border-zinc-600/40';
                 return (
                   <TableRow key={`${h.hotspot_lng}-${h.hotspot_lat}-${idx}`}>
                     <TableTd>{idx + 1}</TableTd>
@@ -391,12 +318,12 @@ export default function ResearchAnalyticsPage() {
                     <TableTd>{fmt(h.nearest_sensor_min_dist_m, 1)}</TableTd>
                     <TableTd>
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${levelClass}`}>
-                        {h.priority_level}
+                        {t(`research.priority.${levelKey}`)}
                       </span>
                     </TableTd>
                     <TableTd>{fmt(h.priority_score, 1)}</TableTd>
                     <TableTd className="text-xs text-zinc-400">
-                      {h.latest_report_at ? new Date(h.latest_report_at).toLocaleString('vi-VN') : '—'}
+                      {formatAdminDateTime(h.latest_report_at, lng)}
                     </TableTd>
                   </TableRow>
                 );
@@ -405,28 +332,6 @@ export default function ResearchAnalyticsPage() {
           </Table>
         )}
       </section>
-    </div>
-  );
-}
-
-function MetricCard({ label, baseline, fused, improvement }) {
-  const improved = improvement != null && improvement > 0;
-  return (
-    <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
-      <p className="text-xs text-zinc-500">{label}</p>
-      <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <p className="text-zinc-500">Baseline</p>
-          <p className="text-zinc-100 font-medium">{fmt(baseline)}</p>
-        </div>
-        <div>
-          <p className="text-zinc-500">Fused</p>
-          <p className="text-zinc-100 font-medium">{fmt(fused)}</p>
-        </div>
-      </div>
-      <p className={`mt-3 text-xs font-medium ${improved ? 'text-emerald-400' : 'text-amber-300'}`}>
-        {improvement == null ? 'Không áp dụng cải thiện %' : `Cải thiện: ${fmt(improvement)}%`}
-      </p>
     </div>
   );
 }

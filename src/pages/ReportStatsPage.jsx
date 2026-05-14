@@ -4,18 +4,20 @@ import { ChevronDown } from 'lucide-react';
 import { getReportStats } from '../services/api';
 import { FaChartColumn, FaArrowsRotate } from 'react-icons/fa6';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
+import { useToast } from '../components/ui/Toast';
+import { useTranslation } from 'react-i18next';
 
 export default function ReportStatsPage() {
+  const { t } = useTranslation();
+  const { toast } = useToast();
   const [series, setSeries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [groupBy, setGroupBy] = useState('day');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
   const load = async () => {
     setLoading(true);
-    setError('');
     const params = { groupBy };
     if (from) params.from = new Date(from).toISOString();
     if (to) params.to = new Date(to).toISOString();
@@ -25,7 +27,7 @@ export default function ReportStatsPage() {
       setSeries(res.data.series.map((s) => ({ period: s.period, count: s.count ?? 0 })));
     } else {
       setSeries([]);
-      setError(res.error || 'Không tải được dữ liệu');
+      toast(res.error || t('common.errorGeneric'), 'error');
     }
   };
 
@@ -76,9 +78,6 @@ export default function ReportStatsPage() {
           </button>
         </div>
       </div>
-      {error && (
-        <div className="mb-4 rounded-lg bg-red-500/20 border border-red-500/40 px-4 py-2 text-sm text-red-200">{error}</div>
-      )}
       {loading ? (
         <p className="text-zinc-400">Đang tải...</p>
       ) : series.length === 0 ? (

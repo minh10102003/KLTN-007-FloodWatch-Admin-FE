@@ -1,17 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { FaMagnifyingGlass, FaDroplet, FaSignal, FaCircleExclamation, FaClipboardList, FaGaugeHigh } from 'react-icons/fa6';
+import { FaMagnifyingGlass, FaSignal, FaCircleExclamation, FaClipboardList, FaGaugeHigh } from 'react-icons/fa6';
 import { ChevronDown } from 'lucide-react';
 import { getCurrentUser, isModerator } from '../utils/auth';
 import { fetchSensors, fetchSensorReadings, fetchPendingReports } from '../services/api';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
-
-const statusConfig = {
-  normal: { label: 'Hoạt động', color: '#10b981', icon: FaGaugeHigh },
-  warning: { label: 'Cảnh báo', color: '#f59e0b', icon: FaCircleExclamation },
-  danger: { label: 'Nguy hiểm', color: '#ef4444', icon: FaCircleExclamation },
-  offline: { label: 'Mất kết nối', color: '#94a3b8', icon: FaSignal },
-};
 
 function normalizeSensor(item) {
   const rawTemp = item.temperature ?? item.temp ?? item.dht?.temperature;
@@ -30,6 +24,17 @@ function normalizeSensor(item) {
 }
 
 export default function DashboardPage() {
+  const { t, i18n } = useTranslation();
+  const chartLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
+  const statusConfig = useMemo(
+    () => ({
+      normal: { label: t('dashboard.statusNormal'), color: '#10b981', icon: FaGaugeHigh },
+      warning: { label: t('dashboard.statusWarning'), color: '#f59e0b', icon: FaCircleExclamation },
+      danger: { label: t('dashboard.statusDanger'), color: '#ef4444', icon: FaCircleExclamation },
+      offline: { label: t('dashboard.statusOffline'), color: '#94a3b8', icon: FaSignal },
+    }),
+    [t]
+  );
   const user = getCurrentUser();
   const [sensors, setSensors] = useState([]);
   const [sensorsLoading, setSensorsLoading] = useState(true);
@@ -40,12 +45,15 @@ export default function DashboardPage() {
   const [readingsLoading, setReadingsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const dateRangeOptions = [
-    { value: 'today', label: 'Hôm nay' },
-    { value: '7d', label: '7 ngày' },
-    { value: '30d', label: '30 ngày' },
-  ];
-  const dateRangeLabel = dateRangeOptions.find((o) => o.value === dateRange)?.label ?? 'Hôm nay';
+  const dateRangeOptions = useMemo(
+    () => [
+      { value: 'today', label: t('dashboard.dateToday') },
+      { value: '7d', label: t('dashboard.date7d') },
+      { value: '30d', label: t('dashboard.date30d') },
+    ],
+    [t]
+  );
+  const dateRangeLabel = dateRangeOptions.find((o) => o.value === dateRange)?.label ?? t('dashboard.dateToday');
 
   const loadSensors = React.useCallback(async () => {
     setSensorsLoading(true);
@@ -105,18 +113,18 @@ export default function DashboardPage() {
             time: d.created_at,
             value: d.water_level != null ? Number(d.water_level) : 0,
             name: d.created_at
-              ? new Date(d.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+              ? new Date(d.created_at).toLocaleTimeString(chartLocale, { hour: '2-digit', minute: '2-digit' })
               : '',
-            mực_nước: d.water_level != null ? Number(d.water_level) : 0,
+            water_level: d.water_level != null ? Number(d.water_level) : 0,
           }))
         );
       } else setReadings([]);
       setReadingsLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [chartSensorId, sensors]);
+  }, [chartSensorId, sensors, chartLocale]);
 
-  const chartData = useMemo(() => readings.map((r) => ({ ...r, mực_nước: r.value ?? r.mực_nước })), [readings]);
+  const chartData = useMemo(() => readings.map((r) => ({ ...r, water_level: r.value ?? r.water_level })), [readings]);
 
   const statusBreakdown = useMemo(() => {
     const { total, normal, warning, danger, offline } = stats;
@@ -127,7 +135,7 @@ export default function DashboardPage() {
       { ...statusConfig.danger, count: danger, pct: ((danger / total) * 100).toFixed(1) },
       { ...statusConfig.offline, count: offline, pct: ((offline / total) * 100).toFixed(1) },
     ].filter((r) => r.count > 0);
-  }, [stats]);
+  }, [stats, statusConfig]);
 
   const pieData = useMemo(
     () =>
@@ -150,9 +158,9 @@ export default function DashboardPage() {
       {/* Header: Overview + greeting, search + Today — Snow UI */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Tổng quan</h1>
+          <h1 className="text-2xl font-bold text-white">{t('dashboard.title')}</h1>
           <p className="mt-0.5 text-sm text-zinc-400">
-            Xin chào, {user?.full_name || user?.username}
+            {t('dashboard.welcomeGreeting', { name: user?.full_name || user?.username || '' })}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -162,7 +170,7 @@ export default function DashboardPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm sensor, vị trí..."
+              placeholder={t('dashboard.searchPlaceholder')}
               className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface py-2 pl-9 pr-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             />
           </div>
@@ -194,7 +202,7 @@ export default function DashboardPage() {
               <FaSignal className="h-5 w-5 text-violet-600" />
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-500">Tổng sensor</p>
+              <p className="text-sm font-medium text-slate-500">{t('dashboard.kpiTotalSensors')}</p>
               <p className="text-2xl font-bold text-slate-800">{stats.total}</p>
             </div>
           </div>
@@ -209,7 +217,7 @@ export default function DashboardPage() {
               <FaGaugeHigh className="h-5 w-5 text-emerald-600" />
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-500">Sensor hoạt động</p>
+              <p className="text-sm font-medium text-slate-500">{t('dashboard.kpiActiveSensors')}</p>
               <p className="text-2xl font-bold text-slate-800">{stats.normal}</p>
             </div>
           </div>
@@ -227,7 +235,7 @@ export default function DashboardPage() {
               <FaCircleExclamation className="h-5 w-5 text-amber-600" />
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-500">Cảnh báo / Nguy hiểm</p>
+              <p className="text-sm font-medium text-slate-500">{t('dashboard.kpiAlerts')}</p>
               <p className="text-2xl font-bold text-slate-800">{stats.alertCount}</p>
             </div>
           </div>
@@ -245,7 +253,7 @@ export default function DashboardPage() {
               <FaClipboardList className="h-5 w-5 text-blue-600" />
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-500">Báo cáo chờ duyệt</p>
+              <p className="text-sm font-medium text-slate-500">{t('dashboard.kpiPendingReports')}</p>
               <p className="text-2xl font-bold text-slate-800">{pendingCount}</p>
             </div>
           </div>
@@ -260,10 +268,10 @@ export default function DashboardPage() {
         {/* Card tối #2D2D2D, flat — Snow UI */}
         <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-5 lg:col-span-2">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-zinc-100">Mực nước 24h</h2>
+            <h2 className="text-lg font-semibold text-zinc-100">{t('dashboard.water24h')}</h2>
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
-                <span className="h-2 w-2 rounded-full bg-violet-500" /> Mực nước
+                <span className="h-2 w-2 rounded-full bg-violet-500" /> {t('dashboard.waterLevel')}
               </span>
               <Menu>
                 <MenuTrigger
@@ -273,7 +281,7 @@ export default function DashboardPage() {
                         {(() => {
                           const id = chartSensorId || sensors[0]?.id;
                           const s = sensors.find((x) => x.id === id);
-                          return s ? `${s.name} – ${s.location}` : 'Chọn sensor';
+                          return s ? `${s.name} – ${s.location}` : t('dashboard.selectSensor');
                         })()}
                       </span>
                       <ChevronDown className="h-4 w-4 shrink-0 text-zinc-400" />
@@ -312,22 +320,22 @@ export default function DashboardPage() {
                     color: '#f4f4f5',
                     padding: '10px 14px',
                   }}
-                  formatter={(value) => [value != null ? `${Number(value).toFixed(1)} cm` : '—', 'Mực nước']}
+                  formatter={(value) => [value != null ? `${Number(value).toFixed(1)} cm` : '—', t('dashboard.waterLevel')]}
                   cursor={{ stroke: '#8b5cf6', strokeDasharray: '4 4' }}
                 />
-                <Area type="monotone" dataKey="mực_nước" stroke="#8b5cf6" strokeWidth={2} fill="url(#waterFill)" name="Mực nước" />
+                <Area type="monotone" dataKey="water_level" stroke="#8b5cf6" strokeWidth={2} fill="url(#waterFill)" name={t('dashboard.waterLevel')} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
             <div className="flex h-64 items-center justify-center rounded-lg bg-dashboard-surface text-zinc-400 text-sm">
-              {sensors.length === 0 ? 'Chưa có sensor.' : 'Chưa có dữ liệu mực nước.'}
+              {sensors.length === 0 ? t('dashboard.noSensors') : t('dashboard.noWaterReadings')}
             </div>
           )}
         </div>
 
         {/* Pie: card tối, flat */}
         <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-5">
-          <h2 className="mb-4 text-lg font-semibold text-zinc-100">Phân bố trạng thái</h2>
+          <h2 className="mb-4 text-lg font-semibold text-zinc-100">{t('dashboard.statusDistribution')}</h2>
           {pieData.length > 0 ? (
             <>
               <ResponsiveContainer width="100%" height={200}>
@@ -350,7 +358,10 @@ export default function DashboardPage() {
                   </Pie>
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: '1px solid #404040', backgroundColor: '#27272a', color: '#f4f4f5' }}
-                    formatter={(value, name, props) => [`${value} sensor (${props?.payload?.pct ?? props?.pct ?? ''}%)`, name]}
+                    formatter={(value, name, props) => [
+                      t('dashboard.pieTooltip', { count: value, pct: props?.payload?.pct ?? props?.pct ?? '' }),
+                      name,
+                    ]}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -364,14 +375,14 @@ export default function DashboardPage() {
               </div>
             </>
           ) : (
-            <p className="py-8 text-center text-sm text-zinc-400">Chưa có dữ liệu sensor.</p>
+            <p className="py-8 text-center text-sm text-zinc-400">{t('dashboard.noSensorDataPie')}</p>
           )}
         </div>
       </div>
 
       {/* Danh sách sensor — card tối, flat */}
       <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-5">
-        <h2 className="mb-4 text-lg font-semibold text-zinc-100">Danh sách sensor</h2>
+        <h2 className="mb-4 text-lg font-semibold text-zinc-100">{t('dashboard.sensorList')}</h2>
         {sensorsLoading ? (
           <div className="space-y-3">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -380,17 +391,17 @@ export default function DashboardPage() {
           </div>
         ) : filteredSensors.length === 0 ? (
           <p className="py-8 text-center text-sm text-zinc-400">
-            {searchQuery.trim() ? 'Không có sensor khớp tìm kiếm.' : 'Chưa có sensor.'}
+            {searchQuery.trim() ? t('dashboard.noSearchMatch') : t('dashboard.noSensors')}
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-dashboard-border text-left text-zinc-400">
-                  <th className="pb-3 font-medium">Trạng thái</th>
-                  <th className="pb-3 font-medium">Mã sensor</th>
-                  <th className="pb-3 font-medium">Vị trí</th>
-                  <th className="pb-3 font-medium text-right">Mực nước</th>
+                  <th className="pb-3 font-medium">{t('dashboard.colStatus')}</th>
+                  <th className="pb-3 font-medium">{t('dashboard.colSensorId')}</th>
+                  <th className="pb-3 font-medium">{t('dashboard.colLocation')}</th>
+                  <th className="pb-3 font-medium text-right">{t('dashboard.colWaterLevel')}</th>
                 </tr>
               </thead>
               <tbody>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 /** Lấy điểm tin cậy model (0–100) từ báo cáo — A2 roadmap. */
 export function getReportConfidence(report) {
@@ -13,6 +14,7 @@ export function getReportConfidence(report) {
  * Badge độ tin cậy báo cáo (Admin/Mod). Tooltip = confidence_breakdown nếu có.
  */
 export default function ConfidenceBadge({ report, className = '' }) {
+  const { t } = useTranslation();
   const score = getReportConfidence(report);
   if (score == null) return null;
   const breakdown =
@@ -28,9 +30,9 @@ export default function ConfidenceBadge({ report, className = '' }) {
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${tone} ${className}`}
-      title={breakdown || `Độ tin cậy model: ${score}/100`}
+      title={breakdown || t('reports.confidenceTooltip', { score })}
     >
-      TC {score}
+      {t('reports.confidenceShort', { score })}
     </span>
   );
 }

@@ -2,21 +2,23 @@ import React, { useEffect, useState } from 'react';
 import { getReliabilityRanking } from '../services/api';
 import { getReporterReliabilityTier } from '../utils/reliabilityHelpers';
 import { FaStar, FaArrowsRotate } from 'react-icons/fa6';
+import { useToast } from '../components/ui/Toast';
+import { useTranslation } from 'react-i18next';
 
 export default function ReliabilityRankingPage() {
+  const { t } = useTranslation();
+  const { toast } = useToast();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
   const load = async () => {
     setLoading(true);
-    setError('');
     const res = await getReliabilityRanking(200);
     setLoading(false);
     if (res.success && Array.isArray(res.data)) setList(res.data);
     else {
       setList([]);
-      setError(res.error || 'Không tải được dữ liệu');
+      toast(res.error || t('common.errorGeneric'), 'error');
     }
   };
 
@@ -37,9 +39,6 @@ export default function ReliabilityRankingPage() {
           <FaArrowsRotate /> Làm mới
         </button>
       </div>
-      {error && (
-        <div className="mb-4 rounded-lg bg-red-500/20 border border-red-500/40 px-4 py-2 text-sm text-red-200">{error}</div>
-      )}
       {loading ? (
         <p className="text-zinc-400">Đang tải...</p>
       ) : list.length === 0 ? (

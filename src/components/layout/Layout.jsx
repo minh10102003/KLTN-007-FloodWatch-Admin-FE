@@ -1,132 +1,218 @@
-import React from 'react';
-import { useLocation } from 'react-router-dom';
-import { Search, LayoutGrid, Star, Sun, Bell, UserCircle, Folder } from 'lucide-react';
-import { AnimateIcon } from '../ui/AnimateIcon';
+import React, { useEffect, useMemo } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { Menu, Bell, UserCircle, Settings } from 'lucide-react';
 import { MotionButton } from '../ui/MotionButton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '../ui/DropdownMenu';
 import { SidebarProvider, useSidebar } from './SidebarContext';
 import Sidebar from './Sidebar';
 import SidebarTrigger from './SidebarTrigger';
-import { getCurrentUser } from '../../utils/auth';
+import { getCurrentUser, isAdmin } from '../../utils/auth';
+import { logout } from '../../services/api';
+import { PATH_TO_NAV_KEY } from '../../utils/routeTitle';
+import { persistLanguage } from '../../i18n/config';
 
-const pathLabels = {
-  '/': 'Tổng quan',
-  '/quan-ly-bao-cao': 'Quản lý báo cáo',
-  '/moderation': 'Kiểm duyệt báo cáo',
-  '/report-stats': 'Thống kê báo cáo',
-  '/research': 'Research Analytics',
-  '/device-health': 'Sức khỏe thiết bị',
-  '/emergency-alerts': 'Cảnh báo đa kênh (thống kê)',
-  '/heatmap': 'Heatmap & timeline',
-  '/fusion': 'Fusion điểm',
-  '/reliability-ranking': 'Xếp hạng tin cậy',
-  '/users': 'Quản lý user',
-  '/sensors': 'Quản lý Sensors',
-  '/audit': 'Nhật ký hệ thống',
-  '/settings': 'Cài đặt hệ thống',
-};
+const NOTIFICATION_COUNT = 3;
 
 function LayoutInner({ children }) {
+  const { t, i18n } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const user = getCurrentUser();
-  const { collapsed } = useSidebar();
-  const title = pathLabels[location.pathname] || 'Trang';
+  const adminUser = isAdmin();
+  const { collapsed, mobileOpen, openMobileDrawer, closeMobileDrawer } = useSidebar();
+
+  const titleKey = PATH_TO_NAV_KEY[location.pathname];
+  const title = titleKey ? t(titleKey) : t('layout.pageFallback');
+
+  const crumbs = useMemo(() => {
+    const c = [{ to: '/', label: t('layout.admin') }];
+    if (location.pathname !== '/') {
+      c.push({ to: location.pathname, label: title });
+    }
+    return c;
+  }, [location.pathname, title, t]);
+
+  useEffect(() => {
+    closeMobileDrawer();
+  }, [location.pathname, closeMobileDrawer]);
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  const setLang = (lng) => {
+    void i18n.changeLanguage(lng);
+    persistLanguage(lng);
+  };
 
   return (
     <>
+      {mobileOpen && (
+        <button
+          type="button"
+          aria-label={t('layout.closeMenu')}
+          className="fixed inset-0 z-[90] cursor-default border-none bg-black/50 p-0 md:hidden"
+          onClick={closeMobileDrawer}
+        />
+      )}
       <Sidebar />
       <div
-        className={`flex-1 flex flex-col min-h-screen transition-[margin-left] duration-200 ease-out ${
-          collapsed ? 'ml-16' : 'ml-56'
+        className={`ml-0 flex min-h-screen flex-1 flex-col transition-[margin-left] duration-200 ease-out ${
+          collapsed ? 'md:ml-16' : 'md:ml-56'
         }`}
       >
-        <header className="sticky top-0 z-20 flex items-center justify-between gap-4 px-6 py-3 bg-dashboard-bg border-b border-dashboard-border">
-          <div className="flex items-center gap-2">
-            <Tooltip side="right" sideOffset={6}>
+        <header className="sticky top-0 z-[80] flex items-center justify-between gap-3 border-b border-[var(--admin-border)] bg-[var(--admin-bg)]/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-[var(--admin-bg)]/80 sm:px-5">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <MotionButton
+              type="button"
+              className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-200 md:hidden"
+              aria-label={t('layout.openMenu')}
+              onClick={openMobileDrawer}
+            >
+              <Menu className="h-5 w-5" />
+            </MotionButton>
+            <div className="hidden md:block">
+              <Tooltip side="right" sideOffset={6}>
+                <TooltipTrigger>
+                  <SidebarTrigger />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{t('layout.collapseSidebar')}</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <nav aria-label="Breadcrumb" className="min-w-0 text-sm">
+              <ol className="flex flex-wrap items-center gap-1.5">
+                {crumbs.map((item, idx) => (
+                  <li key={`${item.to}-${idx}`} className="flex items-center gap-1.5">
+                    {idx > 0 && (
+                      <span className="text-zinc-600" aria-hidden>
+                        /
+                      </span>
+                    )}
+                    {idx < crumbs.length - 1 ? (
+                      <Link
+                        to={item.to}
+                        className="font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+                      >
+                        {item.label}
+                      </Link>
+                    ) : (
+                      <span className="truncate font-semibold tracking-tight text-zinc-100" title={item.label}>
+                        {item.label}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          </div>
+
+          <div className="flex flex-shrink-0 items-center gap-1 sm:gap-2">
+            <span className="mr-1 hidden text-xs text-zinc-500 sm:inline">{t('layout.language')}</span>
+            <div className="flex rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface)]/50 p-0.5">
+              <button
+                type="button"
+                onClick={() => setLang('vi')}
+                className={`rounded-md px-2 py-1 text-xs font-medium ${
+                  i18n.language === 'vi' ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                VI
+              </button>
+              <button
+                type="button"
+                onClick={() => setLang('en')}
+                className={`rounded-md px-2 py-1 text-xs font-medium ${
+                  i18n.language === 'en' ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                EN
+              </button>
+            </div>
+
+            <Tooltip side="bottom" sideOffset={6}>
               <TooltipTrigger>
-                <SidebarTrigger />
+                <MotionButton
+                  type="button"
+                  className="relative rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                  aria-label={t('layout.notifications', { count: NOTIFICATION_COUNT })}
+                >
+                  <Bell className="h-5 w-5" />
+                  {NOTIFICATION_COUNT > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-black ring-2 ring-[var(--admin-bg)]">
+                      {NOTIFICATION_COUNT > 9 ? '9+' : NOTIFICATION_COUNT}
+                    </span>
+                  )}
+                </MotionButton>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Thu gọn / Mở rộng sidebar</p>
+                <p>{t('layout.notifications', { count: NOTIFICATION_COUNT })}</p>
               </TooltipContent>
             </Tooltip>
-            <p className="text-sm text-zinc-400">
-              Dashboards <span className="text-zinc-500">/</span> <span className="text-zinc-100 font-medium">{title}</span>
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative flex items-center">
-              <Search className="absolute left-3 h-4 w-4 text-zinc-500 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search"
-                className="w-52 rounded-xl border border-dashboard-border bg-dashboard-surface pl-9 pr-8 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-              />
-              <span className="absolute right-2 flex h-5 w-5 items-center justify-center rounded-full bg-dashboard-card text-[10px] font-medium text-zinc-300">
-                7
-              </span>
-            </div>
-            <Tooltip side="bottom" sideOffset={6}>
-              <TooltipTrigger>
-                <MotionButton type="button" className="p-2 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200" aria-label="Apps">
-                  <AnimateIcon size={18}><LayoutGrid className="h-4 w-4" /></AnimateIcon>
-                </MotionButton>
-              </TooltipTrigger>
-              <TooltipContent><p>Apps</p></TooltipContent>
-            </Tooltip>
-            <Tooltip side="bottom" sideOffset={6}>
-              <TooltipTrigger>
-                <MotionButton type="button" className="p-2 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200" aria-label="Favorites">
-                  <AnimateIcon size={18}><Star className="h-4 w-4" /></AnimateIcon>
-                </MotionButton>
-              </TooltipTrigger>
-              <TooltipContent><p>Favorites</p></TooltipContent>
-            </Tooltip>
-            <Tooltip side="bottom" sideOffset={6}>
-              <TooltipTrigger>
-                <MotionButton type="button" className="p-2 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200" aria-label="Theme">
-                  <AnimateIcon size={18}><Sun className="h-4 w-4" /></AnimateIcon>
-                </MotionButton>
-              </TooltipTrigger>
-              <TooltipContent><p>Theme</p></TooltipContent>
-            </Tooltip>
-            <Tooltip side="bottom" sideOffset={6}>
-              <TooltipTrigger>
-                <MotionButton type="button" className="relative p-2 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200" aria-label="Notifications">
-                  <AnimateIcon size={18}><Bell className="h-4 w-4" /></AnimateIcon>
-                  <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-red-500" />
-                </MotionButton>
-              </TooltipTrigger>
-              <TooltipContent><p>Notifications</p></TooltipContent>
-            </Tooltip>
-            <Tooltip side="bottom" sideOffset={6}>
-              <TooltipTrigger>
-                <MotionButton type="button" className="p-2 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200" aria-label="User">
-                  <AnimateIcon size={18}><UserCircle className="h-5 w-5" /></AnimateIcon>
-                </MotionButton>
-              </TooltipTrigger>
-              <TooltipContent><p>User</p></TooltipContent>
-            </Tooltip>
-            <Tooltip side="bottom" sideOffset={6}>
-              <TooltipTrigger>
-                <MotionButton type="button" className="p-2 rounded-lg text-zinc-400 hover:bg-white/5 hover:text-zinc-200" aria-label="Folder">
-                  <AnimateIcon size={18}><Folder className="h-4 w-4" /></AnimateIcon>
-                </MotionButton>
-              </TooltipTrigger>
-              <TooltipContent><p>Folder</p></TooltipContent>
-            </Tooltip>
-            {user && (
-              <span className="ml-1 hidden sm:inline text-sm text-zinc-400">
-                {user.full_name || user.username}
-                <span className="text-zinc-500"> · </span>
-                <span className="text-zinc-300">{user.role === 'admin' ? 'Admin' : user.role === 'moderator' ? 'Điều hành viên' : user.role}</span>
-              </span>
-            )}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface)]/40 py-1 pl-1 pr-2.5 text-left transition-colors hover:bg-white/5"
+                  aria-label={t('layout.accountMenu')}
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--admin-primary)] text-xs font-bold text-white">
+                    {(user?.full_name || user?.username || '?').toString().trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className="hidden max-w-[140px] truncate text-xs font-medium text-zinc-200 lg:inline">
+                    {user?.full_name || user?.username || t('layout.accountFallback')}
+                  </span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[13rem]">
+                <DropdownMenuLabel>
+                  <div className="truncate font-semibold text-zinc-100">{user?.full_name || user?.username}</div>
+                  <div className="mt-0.5 truncate font-normal normal-case text-zinc-500">
+                    {user?.role === 'admin'
+                      ? t('layout.roleAdmin')
+                      : user?.role === 'moderator'
+                        ? t('layout.roleModerator')
+                        : user?.role || '—'}
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => {
+                    if (adminUser) navigate('/settings');
+                    else navigate('/');
+                  }}
+                >
+                  <UserCircle className="h-4 w-4" />
+                  {t('layout.profile')}
+                </DropdownMenuItem>
+                {adminUser && (
+                  <DropdownMenuItem onSelect={() => navigate('/settings')}>
+                    <Settings className="h-4 w-4" />
+                    {t('layout.settings')}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={handleLogout}>
+                  {t('layout.logout')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
-        <main className="admin-content flex-1 overflow-y-auto p-6 text-zinc-100">
-          {children}
-        </main>
+        <main className="admin-content flex-1 overflow-y-auto p-4 text-zinc-100 sm:p-6">{children}</main>
       </div>
     </>
   );
@@ -136,7 +222,7 @@ export default function Layout({ children }) {
   return (
     <TooltipProvider openDelay={200} closeDelay={100}>
       <SidebarProvider>
-        <div className="min-h-screen bg-dashboard-bg flex">
+        <div className="flex min-h-screen bg-[var(--admin-bg)]">
           <LayoutInner>{children}</LayoutInner>
         </div>
       </SidebarProvider>

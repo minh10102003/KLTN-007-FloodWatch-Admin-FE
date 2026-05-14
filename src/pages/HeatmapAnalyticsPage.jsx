@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ComposedChart,
   Bar,
@@ -12,6 +13,9 @@ import {
 } from 'recharts';
 import { FaArrowsRotate } from 'react-icons/fa6';
 import { getHeatmap, getHeatmapCombined, getHeatmapTimeline24h } from '../services/api';
+import { useToast } from '../components/ui/Toast';
+
+const BBOX_KEYS = ['minLng', 'minLat', 'maxLng', 'maxLat'];
 
 const defaultBbox = {
   minLng: '106.60',
@@ -20,15 +24,17 @@ const defaultBbox = {
   maxLat: '10.95',
 };
 
-/** C2 — Heatmap + timeline 24h (API public; dùng trong admin để báo cáo / demo). */
 export default function HeatmapAnalyticsPage() {
+  const { t, i18n } = useTranslation();
+  const { toast } = useToast();
   const [bbox, setBbox] = useState(defaultBbox);
   const [gridSize, setGridSize] = useState(500);
   const [heatmap, setHeatmap] = useState([]);
   const [combined, setCombined] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+
+  const chartLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
 
   const bboxParams = useMemo(() => {
     const minLng = parseFloat(bbox.minLng);
@@ -45,7 +51,7 @@ export default function HeatmapAnalyticsPage() {
       (timeline || []).map((row) => ({
         hour:
           row.bucket != null
-            ? new Date(row.bucket).toLocaleString('vi-VN', {
+            ? new Date(row.bucket).toLocaleString(chartLocale, {
                 weekday: 'short',
                 hour: '2-digit',
                 day: '2-digit',
@@ -58,16 +64,13 @@ export default function HeatmapAnalyticsPage() {
         sensorAvg: row.sensor_avg_water_level != null ? Number(row.sensor_avg_water_level) : null,
         crowdAvg: row.crowd_avg_water_level != null ? Number(row.crowd_avg_water_level) : null,
       })),
-    [timeline]
+    [timeline, chartLocale, i18n.language]
   );
 
   const load = async () => {
     setLoading(true);
-    setError('');
     const p = bboxParams;
-    const bb = p
-      ? { minLng: p.minLng, minLat: p.minLat, maxLng: p.maxLng, maxLat: p.maxLat }
-      : {};
+    const bb = p ? { minLng: p.minLng, minLat: p.minLat, maxLng: p.maxLng, maxLat: p.maxLat } : {};
     const heatParams = p ? { ...bb, gridSize: p.gridSize } : {};
     const [h1, h2, h3] = await Promise.all([
       getHeatmap(heatParams),
@@ -76,10 +79,10 @@ export default function HeatmapAnalyticsPage() {
     ]);
     setLoading(false);
     const errs = [];
-    if (!h1.success) errs.push(h1.error || 'Heatmap sensors');
-    if (!h2.success) errs.push(h2.error || 'Heatmap combined');
-    if (!h3.success) errs.push(h3.error || 'Timeline 24h');
-    setError(errs.join(' · '));
+    if (!h1.success) errs.push('h1');
+    if (!h2.success) errs.push('h2');
+    if (!h3.success) errs.push('h3');
+    if (errs.length) toast(i18n.t('common.errorGeneric'), 'error');
     setHeatmap(h1.data || []);
     setCombined(h2.data || []);
     setTimeline(h3.data || []);
@@ -88,26 +91,24 @@ export default function HeatmapAnalyticsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-100">Heatmap & timeline 24h</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          C2 — Dữ liệu tổng hợp không gian + chuỗi theo giờ. Endpoint public; phù hợp dashboard nội bộ (khác với cấu hình cảnh báo user C1).
-        </p>
+        <h1 className="text-2xl font-semibold text-zinc-100">{t('heatmap.title')}</h1>
+        <p className="mt-1 text-sm text-zinc-500">{t('heatmap.subtitle')}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 rounded-xl border border-dashboard-border bg-dashboard-card p-4 md:grid-cols-5">
-        {['minLng', 'minLat', 'maxLng', 'maxLat'].map((k) => (
+        {BBOX_KEYS.map((k) => (
           <label key={k} className="text-xs text-zinc-400">
-            {k}
+            <span className="block text-zinc-300">{t(`heatmap.${k}`)}</span>
             <input
               type="text"
               value={bbox[k]}
-              onChange={(e) => setBBox((b) => ({ ...b, [k]: e.target.value }))}
+              onChange={(e) => setBbox((b) => ({ ...b, [k]: e.target.value }))}
               className="mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-2 py-1.5 text-sm text-zinc-100"
             />
           </label>
         ))}
         <label className="text-xs text-zinc-400">
-          gridSize (m)
+          <span className="block text-zinc-300">{t('heatmap.gridSize')}</span>
           <input
             type="number"
             value={gridSize}
@@ -124,7 +125,7 @@ export default function HeatmapAnalyticsPage() {
           disabled={loading}
           className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
         >
-          {loading ? 'Đang tải...' : 'Tải dữ liệu'}
+          {loading ? t('common.loading') : t('common.loadData')}
         </button>
         <button
           type="button"
@@ -132,23 +133,16 @@ export default function HeatmapAnalyticsPage() {
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-lg border border-dashboard-border px-3 py-2 text-sm text-zinc-300 hover:bg-white/5 disabled:opacity-50"
         >
-          <FaArrowsRotate /> Retry
+          <FaArrowsRotate /> {t('common.retry')}
         </button>
       </div>
-      {!bboxParams && (
-        <p className="text-sm text-amber-300/90">
-          Bbox không hợp lệ — vẫn có thể tải toàn khu (không lọc). Nhập đủ 4 số và min nhỏ hơn max để giới hạn vùng.
-        </p>
-      )}
-      {error && (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/15 px-4 py-3 text-sm text-red-200">{error}</div>
-      )}
+      {!bboxParams && <p className="text-sm text-amber-300/90">{t('heatmap.bboxInvalid')}</p>}
 
       <section className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
-        <h2 className="text-lg font-medium text-zinc-100">Timeline 24h</h2>
-        <p className="text-xs text-zinc-500 mb-4">Điểm theo giờ: sensor + crowd (đã duyệt).</p>
+        <h2 className="text-lg font-medium text-zinc-100">{t('heatmap.timelineTitle')}</h2>
+        <p className="mb-4 text-xs text-zinc-500">{t('heatmap.timelineHint')}</p>
         {chartData.length === 0 ? (
-          <p className="text-sm text-zinc-500">Chưa có dữ liệu — bấm Tải dữ liệu.</p>
+          <p className="text-sm text-zinc-500">{t('heatmap.timelineEmpty')}</p>
         ) : (
           <ResponsiveContainer width="100%" height={320}>
             <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -160,13 +154,13 @@ export default function HeatmapAnalyticsPage() {
                 contentStyle={{ borderRadius: 8, border: '1px solid #404040', backgroundColor: '#27272a', color: '#f4f4f5' }}
               />
               <Legend />
-              <Bar yAxisId="left" dataKey="sensorPts" name="Điểm sensor" fill="#8b5cf6" stackId="a" />
-              <Bar yAxisId="left" dataKey="crowdPts" name="Điểm crowd" fill="#22c55e" stackId="a" />
+              <Bar yAxisId="left" dataKey="sensorPts" name={t('heatmap.chartSensorPts')} fill="#8b5cf6" stackId="a" />
+              <Bar yAxisId="left" dataKey="crowdPts" name={t('heatmap.chartCrowdPts')} fill="#22c55e" stackId="a" />
               <Line
                 yAxisId="right"
                 type="monotone"
                 dataKey="sensorAvg"
-                name="TB mực sensor (cm)"
+                name={t('heatmap.chartSensorAvg')}
                 stroke="#fbbf24"
                 dot={false}
                 strokeWidth={2}
@@ -178,12 +172,12 @@ export default function HeatmapAnalyticsPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
-          <h3 className="text-sm font-medium text-zinc-200">Heatmap — chỉ sensor</h3>
-          <p className="mt-1 text-xs text-zinc-500">Số ô: {heatmap.length}</p>
+          <h3 className="text-sm font-medium text-zinc-200">{t('heatmap.heatmapSensorOnly')}</h3>
+          <p className="mt-1 text-xs text-zinc-500">{t('common.cellCount', { count: heatmap.length })}</p>
         </section>
         <section className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
-          <h3 className="text-sm font-medium text-zinc-200">Heatmap — combined</h3>
-          <p className="mt-1 text-xs text-zinc-500">Số điểm: {combined.length}</p>
+          <h3 className="text-sm font-medium text-zinc-200">{t('heatmap.heatmapCombined')}</h3>
+          <p className="mt-1 text-xs text-zinc-500">{t('common.pointCount', { count: combined.length })}</p>
         </section>
       </div>
     </div>

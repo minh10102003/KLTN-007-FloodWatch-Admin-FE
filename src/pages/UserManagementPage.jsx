@@ -1,15 +1,25 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { FaXmark } from 'react-icons/fa6';
-import { getUsers, assignRole, setUserActive, recomputeUserReliability, createUser, deleteUser } from '../services/api';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { ChevronDown, Search } from 'lucide-react';
+import {
+  getUsers,
+  assignRole,
+  setUserActive,
+  recomputeUserReliability,
+  createUser,
+  deleteUser,
+} from '../services/api';
 import { getCurrentUser, isAdmin } from '../utils/auth';
-import { getReporterReliabilityTier } from '../utils/reliabilityHelpers';
-import { Badge } from '../components/ui/Badge';
+import { trustTierKeyFromScore } from '../utils/formatters';
+import { safeRequestMessage } from '../utils/apiErrors';
 import { Dialog } from '../components/ui/Dialog';
 import { Modal } from '../components/ui/Modal';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
-
-const ROLE_LABELS = { user: 'Người dùng', moderator: 'Điều hành viên', admin: 'Quản trị viên' };
+import { ConfirmTypingDialog } from '../components/common/ConfirmTypingDialog';
+import { EmptyState } from '../components/common/EmptyState';
+import { TableSkeleton } from '../components/common/TableSkeleton';
+import UserTable from '../components/admin/UserTable';
+import { useToast } from '../components/ui/Toast';
 
 const initialCreateForm = {
   username: '',
@@ -20,22 +30,42 @@ const initialCreateForm = {
   phone: '',
 };
 
+const PAGE_SIZE = 10;
+
+function useDebouncedValue(value, ms) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(value), ms);
+    return () => window.clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+}
+
 export default function UserManagementPage() {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const roleLabel = (r) => t(`users.roles.${r}`, { defaultValue: r });
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState({ type: '', text: '' });
   const [roleModal, setRoleModal] = useState(null);
   const [newRole, setNewRole] = useState('user');
   const [recomputingId, setRecomputingId] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createForm, setCreateForm] = useState(initialCreateForm);
   const [createLoading, setCreateLoading] = useState(false);
-  const [createError, setCreateError] = useState('');
-  const [banDialog, setBanDialog] = useState(null);
-  const [banReason, setBanReason] = useState('');
+  const [lockDialog, setLockDialog] = useState(null);
+  const [unlockDialog, setUnlockDialog] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const deleteInFlightRef = useRef(false);
+
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [trustFilter, setTrustFilter] = useState('all');
+  const [page, setPage] = useState(1);
+
   const currentUser = getCurrentUser();
   const canCreateUser = isAdmin();
 
@@ -47,6 +77,7 @@ export default function UserManagementPage() {
       else setUsers([]);
     } catch {
       setUsers([]);
+      toast(safeRequestMessage(null, t('common.errorGeneric')), 'error');
     }
     setLoading(false);
   };
@@ -55,100 +86,116 @@ export default function UserManagementPage() {
     loadUsers();
   }, []);
 
+  const filtered = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    return users.filter((u) => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+      if (statusFilter === 'active' && !u.is_active) return false;
+      if (statusFilter === 'locked' && u.is_active) return false;
+      if (trustFilter !== 'all') {
+        const key = trustTierKeyFromScore(u.reporter_reliability);
+        if (key !== trustFilter) return false;
+      }
+      if (!q) return true;
+      const blob = `${u.username || ''} ${u.email || ''} ${u.full_name || ''}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }, [users, debouncedSearch, roleFilter, statusFilter, trustFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, roleFilter, statusFilter, trustFilter, users.length]);
+
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const sliceStart = (safePage - 1) * PAGE_SIZE;
+  const pageRows = filtered.slice(sliceStart, sliceStart + PAGE_SIZE);
+  const rangeLabel =
+    total === 0
+      ? t('users.rangeEmpty')
+      : t('users.rangeShowing', { from: sliceStart + 1, to: sliceStart + pageRows.length, total });
+
   const handleAssignRole = async () => {
     if (!roleModal || !newRole) return;
-    setMessage({ type: '', text: '' });
     try {
       const res = await assignRole(roleModal.id, newRole);
       if (res.success) {
-        setMessage({ type: 'success', text: res.message || 'Cập nhật role thành công' });
+        toast(res.message || t('users.msgRoleUpdated'), 'success');
         setRoleModal(null);
         loadUsers();
       } else {
-        setMessage({ type: 'error', text: res.error || 'Cập nhật thất bại' });
+        toast(res.error || t('common.errorGeneric'), 'error');
       }
     } catch (err) {
-      setMessage({
-        type: 'error',
-        text: err.response?.data?.error || err.response?.data?.message || err.message || 'Lỗi kết nối',
-      });
+      toast(safeRequestMessage(err, t('common.errorGeneric')), 'error');
     }
   };
 
   const handleToggleActive = async (u) => {
-    setMessage({ type: '', text: '' });
     try {
       const res = await setUserActive(u.id, !u.is_active);
       if (res.success) {
-        setMessage({
-          type: 'success',
-          text: res.message || (u.is_active ? 'Đã vô hiệu hóa' : 'Đã kích hoạt'),
-        });
+        toast(res.message || (u.is_active ? t('users.msgLocked') : t('users.msgUnlocked')), 'success');
         loadUsers();
       } else {
-        setMessage({ type: 'error', text: res.error || res.message || 'Thao tác thất bại' });
+        toast(res.error || res.message || t('common.errorGeneric'), 'error');
       }
     } catch (err) {
-      setMessage({
-        type: 'error',
-        text: err.response?.data?.error || err.response?.data?.message || err.message || 'Lỗi kết nối',
-      });
+      toast(safeRequestMessage(err, t('common.errorGeneric')), 'error');
     }
   };
 
-  const handleBanConfirm = async () => {
-    if (!banDialog) return;
-    console.log('[UserManagement] Ban user', banDialog.id, banReason);
-    await handleToggleActive(banDialog);
-    setBanDialog(null);
-    setBanReason('');
+  const handleLockConfirm = async () => {
+    if (!lockDialog) return;
+    await handleToggleActive(lockDialog);
+    setLockDialog(null);
   };
 
-  const handleForcePasswordReset = (userId) => {
-    console.log('[UserManagement] Force Password Reset', userId);
-    setMessage({ type: '', text: 'Tính năng đặt lại mật khẩu bắt buộc sẽ nối API khi BE hỗ trợ.' });
+  const handleUnlockConfirm = async () => {
+    if (!unlockDialog) return;
+    await handleToggleActive(unlockDialog);
+    setUnlockDialog(null);
+  };
+
+  const handleForcePasswordReset = () => {
+    toast(t('users.msgPasswordResetSoon'), 'info');
   };
 
   const handleRecomputeReliability = async (userId) => {
-    setMessage({ type: '', text: '' });
     setRecomputingId(userId);
     try {
       const res = await recomputeUserReliability(userId);
       setRecomputingId(null);
       if (res?.success) {
-        setMessage({ type: 'success', text: res.message || 'Đã tính lại điểm tin cậy' });
+        toast(res.message || t('users.msgReliabilityRecomputed'), 'success');
         loadUsers();
       } else {
-        setMessage({ type: 'error', text: res?.error || 'Tính lại thất bại' });
+        toast(res?.error || t('common.errorGeneric'), 'error');
       }
     } catch (err) {
       setRecomputingId(null);
-      setMessage({ type: 'error', text: err.response?.data?.error || err.response?.data?.message || err.message || 'Lỗi kết nối' });
+      toast(safeRequestMessage(err, t('common.errorGeneric')), 'error');
     }
   };
 
   const handleOpenCreateModal = () => {
     setCreateModalOpen(true);
     setCreateForm(initialCreateForm);
-    setCreateError('');
   };
 
   const handleDeleteUserConfirm = async () => {
     if (!deleteDialog || deleteInFlightRef.current) return;
     deleteInFlightRef.current = true;
-    setMessage({ type: '', text: '' });
     setDeleteLoading(true);
     try {
       const res = await deleteUser(deleteDialog.id);
       if (res.success) {
-        setMessage({ type: 'success', text: res.message || 'Đã xóa tài khoản' });
+        toast(res.message || t('users.msgDeleted'), 'success');
         setDeleteDialog(null);
         loadUsers();
       } else {
-        setMessage({
-          type: 'error',
-          text: res.error || (res.status === 404 ? 'Không tìm thấy người dùng' : 'Xóa thất bại'),
-        });
+        toast(res.error || t('common.errorGeneric'), 'error');
         if (res.status === 404) setDeleteDialog(null);
       }
     } finally {
@@ -159,10 +206,9 @@ export default function UserManagementPage() {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    setCreateError('');
     const { username, email, password, role } = createForm;
     if (!username?.trim() || !email?.trim() || !password || !role) {
-      setCreateError('Vui lòng điền đủ: Tên đăng nhập, Email, Mật khẩu, Vai trò.');
+      toast(t('users.errCreateFields'), 'error');
       return;
     }
     setCreateLoading(true);
@@ -176,142 +222,141 @@ export default function UserManagementPage() {
         phone: createForm.phone?.trim() || undefined,
       });
       if (res?.success) {
-        setMessage({ type: 'success', text: res.message || 'Tạo tài khoản thành công' });
+        toast(res.message || t('users.msgCreated'), 'success');
         setCreateModalOpen(false);
         setCreateForm(initialCreateForm);
         loadUsers();
       } else {
-        setCreateError(res?.error || res?.message || 'Tạo tài khoản thất bại');
+        toast(res?.error || res?.message || t('common.errorGeneric'), 'error');
       }
     } catch (err) {
-      setCreateError(err.response?.data?.error || err.response?.data?.message || err.message || 'Lỗi kết nối');
+      toast(safeRequestMessage(err, t('common.errorGeneric')), 'error');
     }
     setCreateLoading(false);
   };
 
+  const selectClass =
+    'rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500';
+
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-zinc-100">Quản lý người dùng</h1>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-semibold text-zinc-100">{t('users.title')}</h1>
         {canCreateUser && (
           <button
             type="button"
             onClick={handleOpenCreateModal}
             className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
           >
-            Tạo tài khoản
+            {t('users.createAccount')}
           </button>
         )}
       </div>
-      {message.text && (
-        <div
-          className={`mb-4 rounded-lg px-4 py-2 text-sm ${
-            message.type === 'success' ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40' : 'bg-red-500/20 text-red-200 border border-red-500/40'
-          }`}
-        >
-          {message.text}
+
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="relative max-w-md flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('users.searchPlaceholder')}
+            className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface py-2.5 pl-10 pr-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+          />
         </div>
-      )}
+        <div className="flex flex-wrap gap-2">
+          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className={selectClass}>
+            <option value="all">{t('users.filterRoleAll')}</option>
+            <option value="admin">{t('users.roles.admin')}</option>
+            <option value="moderator">{t('users.roles.moderator')}</option>
+            <option value="user">{t('users.roles.user')}</option>
+          </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={selectClass}>
+            <option value="all">{t('users.filterStatusAll')}</option>
+            <option value="active">{t('users.filterActive')}</option>
+            <option value="locked">{t('users.filterLocked')}</option>
+          </select>
+          <select value={trustFilter} onChange={(e) => setTrustFilter(e.target.value)} className={selectClass}>
+            <option value="all">{t('users.filterTrustAll')}</option>
+            <option value="gold">{t('users.trustGold')}</option>
+            <option value="silver">{t('users.trustSilver')}</option>
+            <option value="bronze">{t('users.trustBronze')}</option>
+          </select>
+        </div>
+      </div>
+
+      <p className="mb-3 text-sm text-zinc-500">{rangeLabel}</p>
+
       {loading ? (
-        <p className="text-zinc-400">Đang tải...</p>
+        <TableSkeleton rows={10} cols={6} />
+      ) : pageRows.length === 0 ? (
+        <EmptyState
+          title={t('users.emptyTitle')}
+          description={t('users.emptyHint')}
+          action={
+            <button
+              type="button"
+              onClick={() => {
+                setSearch('');
+                setRoleFilter('all');
+                setStatusFilter('all');
+                setTrustFilter('all');
+              }}
+              className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
+            >
+              {t('users.clearFilters')}
+            </button>
+          }
+        />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-dashboard-border bg-dashboard-card">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-dashboard-border bg-dashboard-surface text-zinc-400">
-              <tr>
-                <th className="px-4 py-3 font-medium">ID</th>
-                <th className="px-4 py-3 font-medium">Tên đăng nhập</th>
-                <th className="px-4 py-3 font-medium">Email</th>
-                <th className="px-4 py-3 font-medium">Họ tên</th>
-                <th className="px-4 py-3 font-medium">Vai trò</th>
-                <th className="px-4 py-3 font-medium">Độ tin cậy</th>
-                <th className="px-4 py-3 font-medium">Trạng thái</th>
-                <th className="px-4 py-3 font-medium">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-b border-dashboard-border last:border-0 hover:bg-white/5">
-                  <td className="px-4 py-2 text-zinc-300">{u.id}</td>
-                  <td className="px-4 py-2 font-medium text-zinc-200">{u.username}</td>
-                  <td className="px-4 py-2 text-zinc-400">{u.email || '—'}</td>
-                  <td className="px-4 py-2 text-zinc-300">{u.full_name || '—'}</td>
-                  <td className="px-4 py-2 text-zinc-300">{ROLE_LABELS[u.role] || u.role}</td>
-                  <td className="px-4 py-2">
-                    {(() => {
-                      const score = u.reporter_reliability != null ? Number(u.reporter_reliability) : null;
-                      const tier = score != null ? getReporterReliabilityTier(score) : null;
-                      return (
-                        <span className="inline-flex items-center gap-1.5">
-                          {tier ? (
-                            <span
-                              className="rounded px-2 py-0.5 text-xs font-medium"
-                              style={{ backgroundColor: tier.bgLight, color: tier.color }}
-                              title={`Điểm: ${score}/100`}
-                            >
-                              {tier.tier} ({score})
-                            </span>
-                          ) : (
-                            <span className="text-zinc-500 text-xs">—</span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleRecomputeReliability(u.id)}
-                            disabled={recomputingId === u.id}
-                            className="text-xs text-amber-600 hover:underline disabled:opacity-50"
-                            title="Tính lại điểm từ lịch sử"
-                          >
-                            {recomputingId === u.id ? 'Đang tính...' : 'Tính lại'}
-                          </button>
-                        </span>
-                      );
-                    })()}
-                  </td>
-                  <td className="px-4 py-2">
-                    <Badge variant={u.is_active ? 'success' : 'destructive'}>
-                      {u.is_active ? 'Hoạt động' : 'Đã khóa'}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-2">
-                    <button type="button" onClick={() => { setRoleModal(u); setNewRole(u.role); }} className="mr-2 text-blue-600 hover:underline text-sm">
-                      Đổi vai trò
-                    </button>
-                    {u.id !== currentUser?.id && u.is_active && (
-                      <button type="button" onClick={() => setBanDialog(u)} className="mr-2 text-red-600 hover:underline text-sm font-medium">
-                        Khóa tài khoản
-                      </button>
-                    )}
-                    {u.id !== currentUser?.id && !u.is_active && (
-                      <button type="button" onClick={() => handleToggleActive(u)} className="mr-2 text-amber-600 hover:underline text-sm">
-                        Mở khóa
-                      </button>
-                    )}
-                    {canCreateUser && u.id !== currentUser?.id && (
-                      <button
-                        type="button"
-                        onClick={() => setDeleteDialog(u)}
-                        className="mr-2 text-red-500 hover:underline text-sm font-medium"
-                      >
-                        Xóa tài khoản
-                      </button>
-                    )}
-                    <button type="button" onClick={() => handleForcePasswordReset(u.id)} className="text-zinc-400 hover:underline text-sm">
-                      Đặt lại mật khẩu bắt buộc
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <UserTable
+            users={pageRows}
+            currentUserId={currentUser?.id}
+            canCreateUser={canCreateUser}
+            recomputingId={recomputingId}
+            onChangeRole={(u) => {
+              setRoleModal(u);
+              setNewRole(u.role);
+            }}
+            onRequestLock={(u) => setLockDialog(u)}
+            onUnlock={(u) => setUnlockDialog(u)}
+            onRequestDelete={(u) => setDeleteDialog(u)}
+            onResetPassword={handleForcePasswordReset}
+            onRecompute={handleRecomputeReliability}
+          />
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-center gap-2">
+              <button
+                type="button"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="rounded-lg border border-dashboard-border px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+              >
+                {t('users.prev')}
+              </button>
+              <span className="text-sm text-zinc-400">
+                {t('users.pageOf', { page: safePage, totalPages })}
+              </span>
+              <button
+                type="button"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="rounded-lg border border-dashboard-border px-3 py-1.5 text-sm text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+              >
+                {t('users.next')}
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {roleModal && (
         <Modal
           open={!!roleModal}
           onClose={() => setRoleModal(null)}
-          title="Đổi vai trò"
-          description={roleModal ? `Tài khoản: ${roleModal.username}` : ''}
+          title={t('users.modalChangeRole')}
+          description={roleModal ? t('users.modalRoleAccount', { username: roleModal.username }) : ''}
           footer={
             <>
               <button
@@ -319,20 +364,20 @@ export default function UserManagementPage() {
                 onClick={() => setRoleModal(null)}
                 className="rounded-xl border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm text-zinc-200 hover:bg-white/10"
               >
-                Hủy
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
                 onClick={handleAssignRole}
                 className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
               >
-                Lưu
+                {t('common.save')}
               </button>
             </>
           }
         >
           <div className="space-y-3">
-            <label className="mb-1 block text-sm font-medium text-zinc-300">Vai trò</label>
+            <label className="mb-1 block text-sm font-medium text-zinc-300">{t('users.modalRoleLabel')}</label>
             <Menu>
               <MenuTrigger
                 render={
@@ -340,7 +385,7 @@ export default function UserManagementPage() {
                     type="button"
                     className="flex w-full items-center justify-between gap-2 rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-500"
                   >
-                    {ROLE_LABELS[newRole]}
+                    {roleLabel(newRole)}
                     <ChevronDown className="h-4 w-4 text-zinc-400" />
                   </button>
                 }
@@ -348,7 +393,7 @@ export default function UserManagementPage() {
               <MenuPanel align="start" sideOffset={4}>
                 {['user', 'moderator', 'admin'].map((r) => (
                   <MenuItem key={r} onSelect={() => setNewRole(r)}>
-                    {ROLE_LABELS[r]}
+                    {roleLabel(r)}
                   </MenuItem>
                 ))}
               </MenuPanel>
@@ -357,75 +402,67 @@ export default function UserManagementPage() {
         </Modal>
       )}
 
-      {createError && (
-        <div className="fixed top-4 right-4 z-30 flex max-w-sm items-start gap-2 rounded-lg border border-red-300 bg-red-500 px-4 py-3 shadow-lg">
-          <p className="flex-1 text-sm font-medium text-black">{createError}</p>
-          <button
-            type="button"
-            onClick={() => setCreateError('')}
-            className="shrink-0 rounded p-0.5 text-black/80 hover:bg-red-600 hover:text-black"
-            aria-label="Đóng"
-          >
-            <FaXmark className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
       <Dialog
-        open={!!banDialog}
-        onClose={() => { setBanDialog(null); setBanReason(''); }}
-        onConfirm={handleBanConfirm}
-        title="Xác nhận khóa tài khoản"
+        open={!!lockDialog}
+        onClose={() => setLockDialog(null)}
+        onConfirm={handleLockConfirm}
+        title={t('users.lockTitle')}
         description={
-          banDialog ? (
-            <div className="space-y-2">
-              <p>Bạn sẽ khóa tài khoản: <strong>{banDialog.username}</strong>. Nhập lý do (tùy chọn):</p>
-              <textarea value={banReason} onChange={(e) => setBanReason(e.target.value)} className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500" rows={2} placeholder="Lý do ban..." />
-            </div>
+          lockDialog ? (
+            <p className="text-zinc-300">
+              {t('users.lockDesc', { username: lockDialog.username })}
+            </p>
           ) : null
         }
-        confirmLabel="Khóa tài khoản"
+        confirmLabel={t('users.lockConfirm')}
         variant="destructive"
       />
 
       <Dialog
+        open={!!unlockDialog}
+        onClose={() => setUnlockDialog(null)}
+        onConfirm={handleUnlockConfirm}
+        title={t('users.unlockTitle')}
+        description={
+          unlockDialog ? (
+            <p className="text-zinc-300">
+              {t('users.unlockDesc', { username: unlockDialog.username })}
+            </p>
+          ) : null
+        }
+        confirmLabel={t('users.unlockConfirm')}
+        variant="default"
+      />
+
+      <ConfirmTypingDialog
         open={!!deleteDialog}
         onClose={() => !deleteLoading && setDeleteDialog(null)}
         onConfirm={handleDeleteUserConfirm}
-        confirmDisabled={deleteLoading}
-        title="Xóa tài khoản vĩnh viễn"
-        description={
-          deleteDialog ? (
-            <div className="space-y-2 text-zinc-400">
-              <p>
-                Hành động này không thể hoàn tác. User{' '}
-                <strong className="text-zinc-200">{deleteDialog.username}</strong> (ID {deleteDialog.id}) và dữ liệu
-                liên quan sẽ bị gỡ khỏi hệ thống theo chính sách backend.
-              </p>
-              <p className="text-xs text-zinc-500">
-                Không thể xóa chính bạn hoặc admin cuối cùng — server sẽ trả lỗi 400 nếu vi phạm.
-              </p>
-            </div>
-          ) : null
-        }
-        confirmLabel={deleteLoading ? 'Đang xóa...' : 'Xóa vĩnh viễn'}
-        variant="destructive"
+        title={t('users.deleteTitle')}
+        description={t('users.deleteDesc')}
+        confirmPhrase={deleteDialog?.username || ''}
+        confirmLabel={t('users.deleteConfirm')}
+        loading={deleteLoading}
       />
 
       {createModalOpen && (
         <Modal
           open={createModalOpen}
-          onClose={() => { setCreateModalOpen(false); setCreateError(''); }}
-          title="Tạo tài khoản mới"
-          description="Nhập thông tin user mới cho hệ thống. Các trường * là bắt buộc."
+          onClose={() => {
+            setCreateModalOpen(false);
+          }}
+          title={t('users.modalCreateTitle')}
+          description={t('users.modalCreateDesc')}
           footer={
             <>
               <button
                 type="button"
-                onClick={() => { setCreateModalOpen(false); setCreateError(''); }}
+                onClick={() => {
+                  setCreateModalOpen(false);
+                }}
                 className="rounded-xl border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm text-zinc-200 hover:bg-white/10"
               >
-                Hủy
+                {t('common.cancel')}
               </button>
               <button
                 type="submit"
@@ -433,88 +470,91 @@ export default function UserManagementPage() {
                 disabled={createLoading}
                 className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
               >
-                {createLoading ? 'Đang tạo...' : 'Tạo tài khoản'}
+                {createLoading ? t('users.creating') : t('users.createAccount')}
               </button>
             </>
           }
         >
           <form id="create-user-form" onSubmit={handleCreateUser} className="space-y-3">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-300">Tên đăng nhập *</label>
-                <input
-                  type="text"
-                  value={createForm.username}
-                  onChange={(e) => { setCreateForm((f) => ({ ...f, username: e.target.value })); setCreateError(''); }}
-                  className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100 placeholder-zinc-500"
-                  placeholder="vd: mod01"
-                  required
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-300">{t('users.labelUsername')}</label>
+              <input
+                type="text"
+                value={createForm.username}
+                onChange={(e) => {
+                  setCreateForm((f) => ({ ...f, username: e.target.value }));
+                }}
+                className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-300">{t('users.labelEmail')}</label>
+              <input
+                type="email"
+                value={createForm.email}
+                onChange={(e) => {
+                  setCreateForm((f) => ({ ...f, email: e.target.value }));
+                }}
+                className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-300">{t('users.labelPassword')}</label>
+              <input
+                type="password"
+                value={createForm.password}
+                onChange={(e) => {
+                  setCreateForm((f) => ({ ...f, password: e.target.value }));
+                }}
+                className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-300">{t('users.labelRole')}</label>
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                    >
+                      {roleLabel(createForm.role)}
+                      <ChevronDown className="h-4 w-4 text-zinc-400" />
+                    </button>
+                  }
                 />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-300">Email *</label>
-                <input
-                  type="email"
-                  value={createForm.email}
-                  onChange={(e) => { setCreateForm((f) => ({ ...f, email: e.target.value })); setCreateError(''); }}
-                  className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100 placeholder-zinc-500"
-                  placeholder="vd: mod01@hcmflood.vn"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-300">Mật khẩu *</label>
-                <input
-                  type="password"
-                  value={createForm.password}
-                  onChange={(e) => { setCreateForm((f) => ({ ...f, password: e.target.value })); setCreateError(''); }}
-                  className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100 placeholder-zinc-500"
-                  placeholder="Mật khẩu"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-300">Vai trò *</label>
-                <Menu>
-                  <MenuTrigger
-                    render={
-                      <button type="button" className="flex w-full items-center justify-between gap-2 rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-500">
-                        {ROLE_LABELS[createForm.role]}
-                        <ChevronDown className="h-4 w-4 text-zinc-400" />
-                      </button>
-                    }
-                  />
-                  <MenuPanel className="min-w-[10rem]" align="start" sideOffset={4}>
-                    {['user', 'moderator', 'admin'].map((r) => (
-                      <MenuItem key={r} onSelect={() => setCreateForm((f) => ({ ...f, role: r }))}>
-                        {ROLE_LABELS[r]}
-                      </MenuItem>
-                    ))}
-                  </MenuPanel>
-                </Menu>
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-300">Họ tên</label>
-                <input
-                  type="text"
-                  value={createForm.full_name}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, full_name: e.target.value }))}
-                  className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100 placeholder-zinc-500"
-                  placeholder="Họ tên"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-zinc-300">Số điện thoại</label>
-                <input
-                  type="tel"
-                  value={createForm.phone}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))}
-                  className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100 placeholder-zinc-500"
-                  placeholder="vd: 0901234567"
-                />
-              </div>
-              {createError && <p className="text-sm text-red-300">{createError}</p>}
-            </form>
-          </Modal>
+                <MenuPanel className="min-w-[10rem]" align="start" sideOffset={4}>
+                  {['user', 'moderator', 'admin'].map((r) => (
+                    <MenuItem key={r} onSelect={() => setCreateForm((f) => ({ ...f, role: r }))}>
+                      {roleLabel(r)}
+                    </MenuItem>
+                  ))}
+                </MenuPanel>
+              </Menu>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-300">{t('users.labelFullName')}</label>
+              <input
+                type="text"
+                value={createForm.full_name}
+                onChange={(e) => setCreateForm((f) => ({ ...f, full_name: e.target.value }))}
+                className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-300">{t('users.labelPhone')}</label>
+              <input
+                type="tel"
+                value={createForm.phone}
+                onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))}
+                className="w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-zinc-100"
+              />
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );
