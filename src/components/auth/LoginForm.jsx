@@ -6,7 +6,6 @@ import { login, logout } from '../../services/api';
 import { canAccessAdminApp } from '../../utils/auth';
 import { FloodLogo } from './AuthLayout';
 import { useToast } from '../ui/Toast';
-
 export default function LoginForm() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -47,6 +46,7 @@ export default function LoginForm() {
         await logout();
         return;
       }
+      window.dispatchEvent(new CustomEvent('admin-auth-changed'));
       navigate('/', { replace: true });
       return;
     }

@@ -128,7 +128,7 @@ apiClient.interceptors.response.use(
     }
 
     if (status === 403) {
-      const noRedirectPaths = ['/', '/login', '/quan-ly-bao-cao'];
+      const noRedirectPaths = ['/', '/login', '/reports-management', '/quan-ly-bao-cao'];
       if (!noRedirectPaths.includes(path)) window.location.href = '/';
     }
     return Promise.reject(err);

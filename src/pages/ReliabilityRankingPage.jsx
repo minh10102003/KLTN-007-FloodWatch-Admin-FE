@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getReliabilityRanking } from '../services/api';
 import { getReporterReliabilityTier } from '../utils/reliabilityHelpers';
 import { FaStar, FaArrowsRotate } from 'react-icons/fa6';
 import { useToast } from '../components/ui/Toast';
-import { useTranslation } from 'react-i18next';
 
 export default function ReliabilityRankingPage() {
   const { t } = useTranslation();
@@ -29,22 +29,22 @@ export default function ReliabilityRankingPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-zinc-100">Xếp hạng độ tin cậy người báo cáo</h1>
+        <h1 className="text-2xl font-semibold text-zinc-100">{t('reliabilityRanking.title')}</h1>
         <button
           type="button"
           onClick={load}
           disabled={loading}
           className="flex items-center gap-2 rounded-xl border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-white/10 disabled:opacity-50"
         >
-          <FaArrowsRotate /> Làm mới
+          <FaArrowsRotate /> {t('reliabilityRanking.refresh')}
         </button>
       </div>
       {loading ? (
-        <p className="text-zinc-400">Đang tải...</p>
+        <p className="text-zinc-400">{t('common.loading')}</p>
       ) : list.length === 0 ? (
         <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-12 text-center text-zinc-400">
-          <p className="font-medium">Chưa có dữ liệu xếp hạng</p>
-          <p className="text-sm">Dữ liệu dựa trên avg_reliability, verified_count, approved_count từ backend.</p>
+          <p className="font-medium">{t('reliabilityRanking.emptyTitle')}</p>
+          <p className="text-sm">{t('reliabilityRanking.emptyHint')}</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-dashboard-border bg-dashboard-card">
@@ -52,18 +52,18 @@ export default function ReliabilityRankingPage() {
             <thead className="border-b border-dashboard-border bg-dashboard-surface text-zinc-400">
               <tr>
                 <th className="px-4 py-3 font-medium">#</th>
-                <th className="px-4 py-3 font-medium">Người báo cáo</th>
-                <th className="px-4 py-3 font-medium">Độ tin cậy TB</th>
-                <th className="px-4 py-3 font-medium">Hạng</th>
-                <th className="px-4 py-3 font-medium">Tổng báo cáo</th>
-                <th className="px-4 py-3 font-medium">Đã xác minh</th>
-                <th className="px-4 py-3 font-medium">Đã duyệt</th>
+                <th className="px-4 py-3 font-medium">{t('reliabilityRanking.colReporter')}</th>
+                <th className="px-4 py-3 font-medium">{t('reliabilityRanking.colAvgTrust')}</th>
+                <th className="px-4 py-3 font-medium">{t('reliabilityRanking.colTier')}</th>
+                <th className="px-4 py-3 font-medium">{t('reliabilityRanking.colTotal')}</th>
+                <th className="px-4 py-3 font-medium">{t('reliabilityRanking.colVerified')}</th>
+                <th className="px-4 py-3 font-medium">{t('reliabilityRanking.colApproved')}</th>
               </tr>
             </thead>
             <tbody>
               {list.map((row, index) => {
                 const score = row.avg_reliability != null ? Number(row.avg_reliability) : null;
-                const tier = score != null ? getReporterReliabilityTier(score) : null;
+                const tier = score != null ? getReporterReliabilityTier(score, t) : null;
                 return (
                   <tr key={row.reporter_id || index} className="border-b border-dashboard-border last:border-0 hover:bg-white/5">
                     <td className="px-4 py-2 font-medium text-zinc-200">{index + 1}</td>

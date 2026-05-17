@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Menu, Bell, UserCircle, Settings } from 'lucide-react';
+import { Menu, UserCircle, Settings } from 'lucide-react';
+import NotificationBell from './NotificationBell';
 import { MotionButton } from '../ui/MotionButton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
 import {
@@ -19,8 +20,6 @@ import { getCurrentUser, isAdmin } from '../../utils/auth';
 import { logout } from '../../services/api';
 import { PATH_TO_NAV_KEY } from '../../utils/routeTitle';
 import { persistLanguage } from '../../i18n/config';
-
-const NOTIFICATION_COUNT = 3;
 
 function LayoutInner({ children }) {
   const { t, i18n } = useTranslation();
@@ -142,25 +141,7 @@ function LayoutInner({ children }) {
               </button>
             </div>
 
-            <Tooltip side="bottom" sideOffset={6}>
-              <TooltipTrigger>
-                <MotionButton
-                  type="button"
-                  className="relative rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                  aria-label={t('layout.notifications', { count: NOTIFICATION_COUNT })}
-                >
-                  <Bell className="h-5 w-5" />
-                  {NOTIFICATION_COUNT > 0 && (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-black ring-2 ring-[var(--admin-bg)]">
-                      {NOTIFICATION_COUNT > 9 ? '9+' : NOTIFICATION_COUNT}
-                    </span>
-                  )}
-                </MotionButton>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{t('layout.notifications', { count: NOTIFICATION_COUNT })}</p>
-              </TooltipContent>
-            </Tooltip>
+            <NotificationBell />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

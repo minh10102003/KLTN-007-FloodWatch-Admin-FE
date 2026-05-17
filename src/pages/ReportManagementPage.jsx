@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import {
   ComposedChart,
   Bar,
@@ -18,6 +19,11 @@ import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
 import ReportImage from '../components/ReportImage';
 import ConfidenceBadge, { getReportConfidence } from '../components/ConfidenceBadge';
 import { formatAdminDateTime } from '../utils/formatDateTime';
+import { getConfidenceBreakdownLines } from '../utils/formatConfidenceBreakdown';
+import {
+  MODERATION_OPEN_REPORT,
+  MODERATION_REFRESH,
+} from '../utils/moderationEvents';
 
 function formatFloodLevel(raw, t) {
   if (raw == null || raw === '') return '—';
@@ -60,12 +66,133 @@ function getReportContent(report) {
   return text.replace(/<[^>]*>/g, '').trim() || '';
 }
 
+function ReportDetailView({ report, onClose, onPhotoClick, t, i18n }) {
+  const dateLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
+  const status = getReportStatus(report);
+  const statusLabel =
+    status === 'pending'
+      ? t('reports.statusPending')
+      : status === 'approved'
+        ? t('reports.statusApproved')
+        : t('reports.statusRejected');
+  const photoUrls = getReportPhotoUrls(report);
+  const content = getReportContent(report);
+  const locationText =
+    report.location_description ||
+    (report.lat != null && report.lng != null
+      ? `${Number(report.lat).toFixed(4)}, ${Number(report.lng).toFixed(4)}`
+      : '—');
+  const confidenceLines = getConfidenceBreakdownLines(report.confidence_breakdown, t);
+
+  return (
+    <div
+      className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+      aria-label={t('common.closeAria')}
+    >
+      <div
+        className="bg-dashboard-card border border-dashboard-border rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-dashboard-border">
+          <h3 className="text-lg font-semibold text-zinc-100">{t('reports.reportDetail', { id: report.id })}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-white/10 text-zinc-400"
+            aria-label={t('common.closeAria')}
+          >
+            <FaXmark className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-4 overflow-y-auto flex-1 space-y-4 text-zinc-300">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-zinc-200">{formatFloodLevel(report.flood_level, t)}</span>
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                status === 'pending'
+                  ? 'bg-amber-500/30 text-amber-200'
+                  : status === 'approved'
+                    ? 'bg-emerald-500/30 text-emerald-200'
+                    : 'bg-zinc-600 text-zinc-400'
+              }`}
+            >
+              {statusLabel}
+            </span>
+            <ConfidenceBadge report={report} variant="onLight" />
+          </div>
+          <p className="text-sm">
+            <span className="font-medium text-zinc-500">{t('reports.colLocation')}: </span>
+            {locationText}
+          </p>
+          {content && (
+            <div className="rounded-lg border border-dashboard-border bg-dashboard-surface p-3">
+              <p className="text-xs font-medium text-zinc-500 uppercase">{t('reports.colContent')}</p>
+              <p className="text-sm mt-1 whitespace-pre-wrap">{content}</p>
+            </div>
+          )}
+          {confidenceLines.length > 0 && (
+            <div className="rounded-lg border border-dashboard-border bg-dashboard-surface overflow-hidden">
+              <p className="px-3 pt-3 pb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                {t('reports.confidenceBreakdownTitle')}
+              </p>
+              <ul className="border-t border-dashboard-border">
+                {confidenceLines.map((line) => (
+                  <li
+                    key={line.key}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-b border-dashboard-border px-3 py-2.5 text-sm last:border-b-0"
+                  >
+                    <span className="min-w-0 text-zinc-400 leading-snug">{line.label}</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-zinc-100 whitespace-nowrap text-right">
+                      {line.value}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {photoUrls.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-zinc-500 mb-2">
+                {t('reports.colImage')} ({photoUrls.length})
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {photoUrls.map((url, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => onPhotoClick(url)}
+                    className="rounded-lg overflow-hidden border border-dashboard-border bg-dashboard-surface focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    <ReportImage src={url} alt="" className="w-full aspect-video object-cover" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <p className="text-xs text-zinc-500">
+            {report.created_at ? new Date(report.created_at).toLocaleString(dateLocale) : ''}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ReportManagementPage() {
   const { t, i18n } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pendingOpenReportId = useRef(null);
+  const rowRefs = useRef({});
   const chartLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
   const [statsSummary, setStatsSummary] = useState({ pending: 0, approved: 0, rejected: 0, total: 0 });
   const [statsSummaryLoading, setStatsSummaryLoading] = useState(false);
   const [reportList, setReportList] = useState([]);
+  const [focusedReportId, setFocusedReportId] = useState(null);
+  const [detailReport, setDetailReport] = useState(null);
   const [chartData, setChartData] = useState([]);
   const [chartGroupBy, setChartGroupBy] = useState('day');
   const [chartLoading, setChartLoading] = useState(false);
@@ -94,6 +221,40 @@ export default function ReportManagementPage() {
       setReportList([]);
     }
   }, []);
+
+  const scrollToReportRow = useCallback((id) => {
+    window.requestAnimationFrame(() => {
+      rowRefs.current[id]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, []);
+
+  const openReportById = useCallback(
+    (reportId) => {
+      const id = Number(reportId);
+      if (!Number.isFinite(id)) return;
+      setFocusedReportId(id);
+      const found = reportList.find((r) => Number(r.id) === id);
+      if (found) {
+        setDetailReport(found);
+        pendingOpenReportId.current = null;
+        scrollToReportRow(id);
+        return;
+      }
+      pendingOpenReportId.current = id;
+      loadStatsSummary();
+    },
+    [reportList, loadStatsSummary, scrollToReportRow]
+  );
+
+  const closeDetailReport = useCallback(() => {
+    setDetailReport(null);
+    setFocusedReportId(null);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('open');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const loadChartData = useCallback(async () => {
     setChartLoading(true);
@@ -139,6 +300,37 @@ export default function ReportManagementPage() {
   useEffect(() => {
     loadChartData();
   }, [loadChartData]);
+
+  useEffect(() => {
+    const onRefresh = () => loadStatsSummary();
+    const onOpen = (e) => {
+      const id = e.detail?.reportId;
+      if (id != null) openReportById(id);
+    };
+    window.addEventListener(MODERATION_REFRESH, onRefresh);
+    window.addEventListener(MODERATION_OPEN_REPORT, onOpen);
+    return () => {
+      window.removeEventListener(MODERATION_REFRESH, onRefresh);
+      window.removeEventListener(MODERATION_OPEN_REPORT, onOpen);
+    };
+  }, [loadStatsSummary, openReportById]);
+
+  useEffect(() => {
+    const openParam = searchParams.get('open');
+    if (openParam) openReportById(openParam);
+  }, [searchParams, openReportById]);
+
+  useEffect(() => {
+    const id = pendingOpenReportId.current;
+    if (!id) return;
+    const found = reportList.find((r) => Number(r.id) === id);
+    if (found) {
+      setDetailReport(found);
+      setFocusedReportId(id);
+      pendingOpenReportId.current = null;
+      scrollToReportRow(id);
+    }
+  }, [reportList, scrollToReportRow]);
 
   const refreshAll = () => {
     loadStatsSummary();
@@ -306,8 +498,25 @@ export default function ReportManagementPage() {
                   const content = getReportContent(report);
                   const locationTitle = report.location_description || (report.lat != null && report.lng != null ? `${report.lat}, ${report.lng}` : '');
                   const locationText = report.location_description || (report.lat != null && report.lng != null ? `${Number(report.lat).toFixed(4)}, ${Number(report.lng).toFixed(4)}` : '—');
+                  const isFocused = focusedReportId === Number(report.id);
                   return (
-                    <TableRow key={report.id}>
+                    <TableRow
+                      key={report.id}
+                      ref={(el) => {
+                        if (el) rowRefs.current[report.id] = el;
+                        else delete rowRefs.current[report.id];
+                      }}
+                      className={isFocused ? 'bg-violet-500/15 ring-1 ring-inset ring-violet-500/50' : undefined}
+                      onClick={() => {
+                        setFocusedReportId(Number(report.id));
+                        setDetailReport(report);
+                        setSearchParams((prev) => {
+                          const next = new URLSearchParams(prev);
+                          next.set('open', String(report.id));
+                          return next;
+                        }, { replace: true });
+                      }}
+                    >
                       <TableTd className="font-medium text-zinc-200">#{report.id}</TableTd>
                       <TableTd>
                         <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}>
@@ -339,7 +548,10 @@ export default function ReportManagementPage() {
                               <button
                                 key={idx}
                                 type="button"
-                                onClick={() => setPhotoModalUrl(url)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPhotoModalUrl(url);
+                                }}
                                 className="h-10 w-10 shrink-0 overflow-hidden rounded border border-dashboard-border bg-dashboard-surface focus:outline-none focus:ring-2 focus:ring-violet-500"
                               >
                                 <ReportImage src={url} alt="" className="h-full w-full object-cover" />
@@ -364,6 +576,16 @@ export default function ReportManagementPage() {
           )}
         </div>
       </div>
+
+      {detailReport && (
+        <ReportDetailView
+          report={detailReport}
+          onClose={closeDetailReport}
+          onPhotoClick={setPhotoModalUrl}
+          t={t}
+          i18n={i18n}
+        />
+      )}
 
       {photoModalUrl && (
         <div

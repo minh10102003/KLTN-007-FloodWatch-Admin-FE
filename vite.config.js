@@ -19,6 +19,16 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
       },
+      /** Socket.IO — chỉ dùng khi VITE_SOCKET_ENABLED=true và BE đã bật socket */
+      '/socket.io': {
+        target:
+          process.env.VITE_API_PROXY_TARGET ||
+          process.env.VITE_SOCKET_URL ||
+          'https://api.floodsight.id.vn',
+        changeOrigin: true,
+        secure: true,
+        ws: true,
+      },
     },
   },
 })

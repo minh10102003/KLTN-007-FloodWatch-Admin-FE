@@ -26,7 +26,7 @@ import { logout } from '../../services/api';
 
 const NAV = [
   { path: '/', key: 'nav.home', icon: Home },
-  { path: '/quan-ly-bao-cao', key: 'nav.reports', icon: List, adminOnly: true },
+  { path: '/reports-management', key: 'nav.reports', icon: List, adminOnly: true },
   { path: '/moderation', key: 'nav.moderation', icon: Search, moderatorOnly: true },
   { path: '/report-stats', key: 'nav.reportStats', icon: BarChart3, moderatorOnly: true },
   { path: '/research', key: 'nav.research', icon: BarChart3 },

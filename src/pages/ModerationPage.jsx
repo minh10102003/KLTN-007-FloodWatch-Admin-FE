@@ -1,4 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation, Trans } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import { getReportsAll, moderateReport } from '../services/api';
 import { getReporterReliabilityTier } from '../utils/reliabilityHelpers';
@@ -8,8 +10,20 @@ import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
 import ReportImage from '../components/ReportImage';
 import { useToast } from '../components/ui/Toast';
 import ConfidenceBadge from '../components/ConfidenceBadge';
+import { getConfidenceBreakdownLines } from '../utils/formatConfidenceBreakdown';
+import {
+  FLOOD_FILTER_ALL,
+  FLOOD_LEVEL_API_VALUES,
+  formatFloodLevel,
+  floodLevelFilterLabel,
+} from '../utils/floodLevel';
+import {
+  MODERATION_OPEN_REPORT,
+  MODERATION_REFRESH,
+  markSelfModeration,
+} from '../utils/moderationEvents';
 
-const FLOOD_LEVELS = ['Tất cả', 'Nặng', 'Trung bình', 'Nhẹ'];
+const FLOOD_LEVELS = [FLOOD_FILTER_ALL, ...FLOOD_LEVEL_API_VALUES];
 
 /** Màu card theo mức độ ngập */
 const LEVEL_CARD_STYLES = {
@@ -19,12 +33,25 @@ const LEVEL_CARD_STYLES = {
 };
 const levelDefaultStyle = 'bg-dashboard-surface border-dashboard-border text-zinc-200';
 
+/** Badge trạng thái trên card nền sáng (pastel) */
+const STATUS_BADGE_ON_LIGHT = {
+  approved: 'bg-emerald-600 text-white',
+  rejected: 'bg-zinc-600 text-white',
+  pending: 'bg-amber-600 text-white',
+};
+
 /** Chuẩn hóa status từ BE (có thể là status, moderation_status, is_approved, v.v.) */
 function getReportStatus(report) {
   if (report.status) return report.status;
   if (report.moderation_status) return report.moderation_status;
   if (typeof report.is_approved === 'boolean') return report.is_approved ? 'approved' : 'rejected';
   return 'pending';
+}
+
+function getModerationStatusLabel(status, t) {
+  if (status === 'approved') return t('reports.statusApproved');
+  if (status === 'rejected') return t('reports.statusRejected');
+  return t('reports.statusPending');
 }
 
 /** Lấy danh sách URL ảnh từ báo cáo (nhiều ảnh hoặc 1 ảnh, tương thích BE cũ) */
@@ -156,6 +183,7 @@ function ReportMiniCard({
   onDragEnd,
   draggingId,
 }) {
+  const { t } = useTranslation();
   const levelStyle = LEVEL_CARD_STYLES[report.flood_level] || levelDefaultStyle;
   const isDragging = isPending && draggingId === report.id;
   const card = (
@@ -173,13 +201,13 @@ function ReportMiniCard({
             {address}
           </p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <span className="text-xs font-semibold">{report.flood_level || '—'}</span>
+            <span className="text-xs font-semibold">{formatFloodLevel(report.flood_level, t)}</span>
             {statusLabel && (
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}>
                 {statusLabel}
               </span>
             )}
-            <ConfidenceBadge report={report} />
+            <ConfidenceBadge report={report} variant="onLight" />
           </div>
         </div>
         {isPending && (
@@ -249,43 +277,46 @@ function ReportDetailModalContent({
   handleApprove,
   processing,
 }) {
+  const { t, i18n } = useTranslation();
+  const dateLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
   const address = useGeocodedAddress(report);
   const status = getReportStatus(report);
   const photoUrls = getReportPhotoUrls(report);
   const content = getReportContent(report);
   const isPending = status === 'pending';
+  const confidenceLines = getConfidenceBreakdownLines(report.confidence_breakdown, t);
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4" onClick={onClose} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Escape' && onClose()} aria-label="Đóng">
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4" onClick={onClose} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Escape' && onClose()} aria-label={t('common.closeAria')}>
       <div
         className="bg-dashboard-card border border-dashboard-border rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-dashboard-border">
-          <h3 className="text-lg font-semibold text-zinc-100">Báo cáo #{report.id}</h3>
-          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-zinc-400" aria-label="Đóng">
+          <h3 className="text-lg font-semibold text-zinc-100">{t('moderation.reportDetail', { id: report.id })}</h3>
+          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-zinc-400" aria-label={t('common.closeAria')}>
             <FaXmark className="w-5 h-5" />
           </button>
         </div>
         <div className="p-4 overflow-y-auto flex-1 space-y-4 text-zinc-300">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-sm font-semibold ${levelColors[report.flood_level] || 'text-zinc-200'}`}>{report.flood_level || '—'}</span>
+            <span className={`text-sm font-semibold ${levelColors[report.flood_level] || 'text-zinc-200'}`}>{formatFloodLevel(report.flood_level, t)}</span>
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${isPending ? 'bg-amber-500/30 text-amber-200' : status === 'approved' ? 'bg-emerald-500/30 text-emerald-200' : 'bg-zinc-600 text-zinc-400'}`}>
-              {isPending ? 'Chờ duyệt' : status === 'approved' ? 'Đã duyệt' : 'Đã từ chối'}
+              {getModerationStatusLabel(status, t)}
             </span>
-            <ConfidenceBadge report={report} />
+            <ConfidenceBadge report={report} variant="onLight" />
           </div>
           <p className="text-sm">
-            <span className="font-medium text-zinc-500">Địa điểm: </span>
+            <span className="font-medium text-zinc-500">{t('moderation.locationLabel')}: </span>
             {address}
           </p>
           {content && (
             <div className="rounded-lg border border-dashboard-border bg-dashboard-surface p-3">
-              <p className="text-xs font-medium text-zinc-500 uppercase">Nội dung</p>
+              <p className="text-xs font-medium text-zinc-500 uppercase">{t('moderation.contentLabel')}</p>
               <p className="text-sm mt-1 whitespace-pre-wrap">{content}</p>
             </div>
           )}
           {report.reporter_reliability != null && (() => {
-            const tier = getReporterReliabilityTier(Number(report.reporter_reliability));
+            const tier = getReporterReliabilityTier(Number(report.reporter_reliability), t);
             return tier ? (
               <div className="flex items-center gap-2">
                 <FaStar className="text-amber-500" style={{ fontSize: '12px' }} />
@@ -293,16 +324,29 @@ function ReportDetailModalContent({
               </div>
             ) : null;
           })()}
-          {report.confidence_breakdown != null && report.confidence_breakdown !== '' && (
-            <p className="text-xs text-zinc-500 border border-dashboard-border rounded-lg p-2 bg-dashboard-surface whitespace-pre-wrap">
-              {typeof report.confidence_breakdown === 'string'
-                ? report.confidence_breakdown
-                : JSON.stringify(report.confidence_breakdown, null, 2)}
-            </p>
+          {confidenceLines.length > 0 && (
+            <div className="rounded-lg border border-dashboard-border bg-dashboard-surface overflow-hidden">
+              <p className="px-3 pt-3 pb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                {t('reports.confidenceBreakdownTitle')}
+              </p>
+              <ul className="border-t border-dashboard-border">
+                {confidenceLines.map((line) => (
+                  <li
+                    key={line.key}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-b border-dashboard-border px-3 py-2.5 text-sm last:border-b-0"
+                  >
+                    <span className="min-w-0 text-zinc-400 leading-snug">{line.label}</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-zinc-100 whitespace-nowrap text-right">
+                      {line.value}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {photoUrls.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-zinc-500 mb-2">Ảnh ({photoUrls.length})</p>
+              <p className="text-xs font-medium text-zinc-500 mb-2">{t('moderation.photosLabel', { count: photoUrls.length })}</p>
               <div className="grid grid-cols-2 gap-2">
                 {photoUrls.map((url, idx) => (
                   <button key={idx} type="button" onClick={() => setPhotoModalUrl(url)} className="rounded-lg overflow-hidden border border-dashboard-border bg-dashboard-surface focus:outline-none focus:ring-2 focus:ring-violet-500">
@@ -312,14 +356,14 @@ function ReportDetailModalContent({
               </div>
             </div>
           )}
-          <p className="text-xs text-zinc-500">{report.created_at ? new Date(report.created_at).toLocaleString('vi-VN') : ''}</p>
+          <p className="text-xs text-zinc-500">{report.created_at ? new Date(report.created_at).toLocaleString(dateLocale) : ''}</p>
           {isPending && (
             <div className="flex gap-2 pt-2">
               <button type="button" onClick={() => handleApprove(report.id)} disabled={processing === report.id} className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-green-600 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
-                <FaCheck /> Duyệt
+                <FaCheck /> {t('moderation.approve')}
               </button>
               <button type="button" onClick={() => { onClose(); setRejectModal(report); }} disabled={processing === report.id} className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-red-600 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
-                <FaXmark /> Từ chối
+                <FaXmark /> {t('moderation.reject')}
               </button>
             </div>
           )}
@@ -331,10 +375,12 @@ function ReportDetailModalContent({
 
 /** Card mini đã xử lý (ô trái) — dùng hook geocode, bấm mở popup */
 function ProcessedMiniCard({ report, getReportStatus, setDetailReport }) {
+  const { t } = useTranslation();
   const address = useGeocodedAddress(report);
   const status = getReportStatus(report);
-  const statusLabel = status === 'approved' ? 'Đã duyệt' : 'Đã từ chối';
-  const statusClass = status === 'approved' ? 'bg-emerald-500/30 text-emerald-200' : 'bg-zinc-600 text-zinc-400';
+  const statusLabel = getModerationStatusLabel(status, t);
+  const statusClass =
+    status === 'approved' ? STATUS_BADGE_ON_LIGHT.approved : STATUS_BADGE_ON_LIGHT.rejected;
   return (
     <ReportMiniCard
       report={report}
@@ -348,13 +394,14 @@ function ProcessedMiniCard({ report, getReportStatus, setDetailReport }) {
 
 /** Card mini chờ duyệt (ô phải) — kéo được, bấm mở popup */
 function PendingMiniCard({ report, setDetailReport, setRejectModal, handleApprove, processing, draggingId, setDraggingId }) {
+  const { t } = useTranslation();
   const address = useGeocodedAddress(report);
   return (
     <ReportMiniCard
       report={report}
       address={address}
-      statusLabel="Chờ duyệt"
-      statusClass="bg-amber-500/30 text-amber-200"
+      statusLabel={t('reports.statusPending')}
+      statusClass={STATUS_BADGE_ON_LIGHT.pending}
       onClick={() => setDetailReport(report)}
       isPending
       onDragStart={(e) => {
@@ -369,13 +416,16 @@ function PendingMiniCard({ report, setDetailReport, setRejectModal, handleApprov
 }
 
 export default function ModerationPage() {
+  const { t } = useTranslation();
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pendingOpenReportId = useRef(null);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
   const [rejectModal, setRejectModal] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [filterLevel, setFilterLevel] = useState('Tất cả');
+  const [filterLevel, setFilterLevel] = useState(FLOOD_FILTER_ALL);
   const [searchText, setSearchText] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [photoModalUrl, setPhotoModalUrl] = useState(null);
@@ -392,9 +442,65 @@ export default function ModerationPage() {
     setLoading(false);
   }, []);
 
+  const openReportById = useCallback(
+    (reportId) => {
+      const id = Number(reportId);
+      if (!Number.isFinite(id)) return;
+      const found = reports.find((r) => Number(r.id) === id);
+      if (found) {
+        setDetailReport(found);
+        pendingOpenReportId.current = null;
+        return;
+      }
+      pendingOpenReportId.current = id;
+      loadReports();
+    },
+    [reports, loadReports]
+  );
+
+  const closeDetailReport = useCallback(() => {
+    setDetailReport(null);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('open');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   useEffect(() => {
     loadReports();
   }, [loadReports]);
+
+  useEffect(() => {
+    const onRefresh = () => {
+      loadReports();
+    };
+    const onOpen = (e) => {
+      const id = e.detail?.reportId;
+      if (id != null) openReportById(id);
+    };
+    window.addEventListener(MODERATION_REFRESH, onRefresh);
+    window.addEventListener(MODERATION_OPEN_REPORT, onOpen);
+    return () => {
+      window.removeEventListener(MODERATION_REFRESH, onRefresh);
+      window.removeEventListener(MODERATION_OPEN_REPORT, onOpen);
+    };
+  }, [loadReports, openReportById]);
+
+  useEffect(() => {
+    const openParam = searchParams.get('open');
+    if (openParam) openReportById(openParam);
+  }, [searchParams, openReportById]);
+
+  useEffect(() => {
+    const id = pendingOpenReportId.current;
+    if (!id) return;
+    const found = reports.find((r) => Number(r.id) === id);
+    if (found) {
+      setDetailReport(found);
+      pendingOpenReportId.current = null;
+    }
+  }, [reports]);
 
   useEffect(() => {
     let cancelled = false;
@@ -421,19 +527,20 @@ export default function ModerationPage() {
     const result = await moderateReport(reportId, 'approve');
     setProcessing(null);
     if (result.success) {
-      toast(result.message || 'Đã duyệt báo cáo', 'success');
+      markSelfModeration(reportId, 'approved');
+      toast(result.message || t('moderation.toastApproved'), 'success');
       loadReports();
       setDetailReport((prev) => (prev?.id === reportId ? null : prev));
     } else {
-      toast(result.error || 'Không thể duyệt', 'error');
+      toast(result.error || t('moderation.toastApproveFailed'), 'error');
     }
-  }, [loadReports, toast]);
+  }, [loadReports, toast, t]);
 
   const handleRejectSubmit = async () => {
     if (!rejectModal) return;
     const reason = rejectReason.trim();
     if (!reason) {
-      toast('Vui lòng nhập lý do từ chối', 'error');
+      toast(t('moderation.toastRejectReasonRequired'), 'error');
       return;
     }
     setProcessing(rejectModal.id);
@@ -442,11 +549,12 @@ export default function ModerationPage() {
     setRejectModal(null);
     setRejectReason('');
     if (result.success) {
-      toast(result.message || 'Đã từ chối báo cáo', 'success');
+      markSelfModeration(rejectModal.id, 'rejected');
+      toast(result.message || t('moderation.toastRejected'), 'success');
       loadReports();
       setDetailReport((prev) => (prev?.id === rejectModal.id ? null : prev));
     } else {
-      toast(result.error || 'Không thể từ chối', 'error');
+      toast(result.error || t('moderation.toastRejectFailed'), 'error');
     }
   };
 
@@ -455,7 +563,7 @@ export default function ModerationPage() {
   const applyFilterAndSort = useCallback(
     (list) => {
       let out = [...list];
-      if (filterLevel !== 'Tất cả') out = out.filter((r) => (r.flood_level || '') === filterLevel);
+      if (filterLevel !== FLOOD_FILTER_ALL) out = out.filter((r) => (r.flood_level || '') === filterLevel);
       if (searchText.trim()) {
         out = out.filter(
           (r) => {
@@ -523,26 +631,26 @@ export default function ModerationPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-zinc-100">Kiểm duyệt báo cáo</h1>
+        <h1 className="text-2xl font-semibold text-zinc-100">{t('moderation.title')}</h1>
         <button
           type="button"
           onClick={loadReports}
           disabled={loading}
           className="flex items-center gap-2 rounded-lg border border-dashboard-border bg-dashboard-card px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-dashboard-surface disabled:opacity-50"
         >
-          <FaArrowsRotate /> Làm mới
+          <FaArrowsRotate /> {t('moderation.refresh')}
         </button>
       </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-dashboard-border bg-dashboard-card p-4 shadow-sm">
         <span className="flex items-center gap-2 text-sm font-medium text-zinc-400">
-          <FaFilter /> Bộ lọc (áp dụng cả hai ô)
+          <FaFilter /> {t('moderation.filterBar')}
         </span>
         <Menu>
           <MenuTrigger
             render={
               <button type="button" className="flex items-center gap-2 rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-500">
-                {filterLevel === 'Tất cả' ? 'Mức độ: Tất cả' : filterLevel}
+                {floodLevelFilterLabel(filterLevel, t)}
                 <ChevronDown className="h-4 w-4 text-zinc-400" />
               </button>
             }
@@ -550,7 +658,7 @@ export default function ModerationPage() {
           <MenuPanel className="min-w-[10rem]" align="start" sideOffset={4}>
             {FLOOD_LEVELS.map((level) => (
               <MenuItem key={level} onSelect={() => setFilterLevel(level)}>
-                {level === 'Tất cả' ? 'Mức độ: Tất cả' : level}
+                {floodLevelFilterLabel(level, t)}
               </MenuItem>
             ))}
           </MenuPanel>
@@ -559,34 +667,34 @@ export default function ModerationPage() {
           <MenuTrigger
             render={
               <button type="button" className="flex items-center gap-2 rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-500">
-                {sortBy === 'newest' ? 'Mới nhất trước' : sortBy === 'oldest' ? 'Cũ nhất trước' : 'Độ tin cậy cao trước'}
+                {sortBy === 'newest' ? t('moderation.sortNewest') : sortBy === 'oldest' ? t('moderation.sortOldest') : t('moderation.sortReliability')}
                 <ChevronDown className="h-4 w-4 text-zinc-400" />
               </button>
             }
           />
           <MenuPanel className="min-w-[11rem]" align="start" sideOffset={4}>
-            <MenuItem onSelect={() => setSortBy('newest')}>Mới nhất trước</MenuItem>
-            <MenuItem onSelect={() => setSortBy('oldest')}>Cũ nhất trước</MenuItem>
-            <MenuItem onSelect={() => setSortBy('reliability_desc')}>Độ tin cậy cao trước</MenuItem>
+            <MenuItem onSelect={() => setSortBy('newest')}>{t('moderation.sortNewest')}</MenuItem>
+            <MenuItem onSelect={() => setSortBy('oldest')}>{t('moderation.sortOldest')}</MenuItem>
+            <MenuItem onSelect={() => setSortBy('reliability_desc')}>{t('moderation.sortReliability')}</MenuItem>
           </MenuPanel>
         </Menu>
         <input
           type="text"
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          placeholder="Tìm theo địa điểm, nội dung, ID..."
+          placeholder={t('moderation.searchPlaceholder')}
           className="min-w-[200px] rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
         />
-        {(filterLevel !== 'Tất cả' || searchText.trim()) && (
+        {(filterLevel !== FLOOD_FILTER_ALL || searchText.trim()) && (
           <button
             type="button"
             onClick={() => {
-              setFilterLevel('Tất cả');
+              setFilterLevel(FLOOD_FILTER_ALL);
               setSearchText('');
             }}
             className="rounded-lg border border-dashboard-border px-3 py-2 text-sm text-zinc-400 hover:bg-dashboard-surface"
           >
-            Xóa bộ lọc
+            {t('moderation.clearFilters')}
           </button>
         )}
       </div>
@@ -603,12 +711,12 @@ export default function ModerationPage() {
           onDrop={handleDropOnProcessed}
         >
           <div className="p-4 h-full flex flex-col">
-            <h2 className="text-lg font-semibold text-zinc-100 mb-1">Báo cáo đã xử lý</h2>
+            <h2 className="text-lg font-semibold text-zinc-100 mb-1">{t('moderation.processedTitle')}</h2>
             <p className="text-sm text-zinc-400 mb-4">
-              Kéo thả card từ ô bên phải vào đây để <strong>duyệt</strong> báo cáo.
+              <Trans i18nKey="moderation.processedHint" components={{ 1: <strong /> }} />
             </p>
             {loading ? (
-              <p className="text-zinc-400">Đang tải...</p>
+              <p className="text-zinc-400">{t('common.loading')}</p>
             ) : (
               <div className="flex-1 overflow-auto">
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -622,7 +730,7 @@ export default function ModerationPage() {
                   ))}
                 </div>
                 {processedReports.length === 0 && !loading && (
-                  <p className="text-zinc-400 text-center py-8">Chưa có báo cáo đã xử lý</p>
+                  <p className="text-zinc-400 text-center py-8">{t('moderation.processedEmpty')}</p>
                 )}
               </div>
             )}
@@ -632,19 +740,17 @@ export default function ModerationPage() {
         {/* Ô phải nhỏ: Chờ xét duyệt — kéo card sang trái = duyệt */}
         <div className="w-full lg:w-80 shrink-0 rounded-xl border border-dashboard-border bg-dashboard-card shadow-sm overflow-hidden flex flex-col">
           <div className="p-4 border-b border-dashboard-border bg-dashboard-surface">
-            <h2 className="text-lg font-semibold text-zinc-100">Chờ xét duyệt</h2>
-            <p className="text-sm text-zinc-400 mt-0.5">
-              Kéo card sang ô trái để duyệt. Bấm &quot;Từ chối&quot; để từ chối.
-            </p>
+            <h2 className="text-lg font-semibold text-zinc-100">{t('moderation.pendingTitle')}</h2>
+            <p className="text-sm text-zinc-400 mt-0.5">{t('moderation.pendingHint')}</p>
             {pendingReports.length > 0 && (
-              <p className="text-xs text-zinc-500 mt-2">{pendingReports.length} báo cáo</p>
+              <p className="text-xs text-zinc-500 mt-2">{t('moderation.pendingCount', { count: pendingReports.length })}</p>
             )}
           </div>
           <div className="flex-1 overflow-auto p-3 space-y-3">
             {loading ? (
-              <p className="text-zinc-400 text-sm">Đang tải...</p>
+              <p className="text-zinc-400 text-sm">{t('common.loading')}</p>
             ) : pendingReports.length === 0 ? (
-              <p className="text-zinc-400 text-sm text-center py-6">Không có báo cáo chờ duyệt</p>
+              <p className="text-zinc-400 text-sm text-center py-6">{t('moderation.pendingEmpty')}</p>
             ) : (
               pendingReports.map((report) => (
                 <PendingMiniCard
@@ -666,7 +772,7 @@ export default function ModerationPage() {
       {detailReport && (
         <ReportDetailModal
           report={detailReport}
-          onClose={() => setDetailReport(null)}
+          onClose={closeDetailReport}
           getReportStatus={getReportStatus}
           getReportPhotoUrls={getReportPhotoUrls}
           getReportContent={getReportContent}
@@ -682,14 +788,14 @@ export default function ModerationPage() {
       {rejectModal && (
         <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-md rounded-xl bg-dashboard-card border border-dashboard-border p-6 shadow-xl">
-            <h3 className="font-semibold text-zinc-100 mb-2">Từ chối báo cáo #{rejectModal.id}</h3>
-            <p className="mb-2 text-sm text-zinc-400">Lý do từ chối (bắt buộc):</p>
+            <h3 className="font-semibold text-zinc-100 mb-2">{t('moderation.rejectTitle', { id: rejectModal.id })}</h3>
+            <p className="mb-2 text-sm text-zinc-400">{t('moderation.rejectReasonLabel')}</p>
             <textarea
               value={rejectReason}
               onChange={(e) => {
                 setRejectReason(e.target.value);
               }}
-              placeholder="Nhập lý do..."
+              placeholder={t('moderation.rejectReasonPlaceholder')}
               rows={3}
               className="mb-4 w-full rounded-xl border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500"
             />
@@ -699,18 +805,17 @@ export default function ModerationPage() {
                 onClick={() => {
                   setRejectModal(null);
                   setRejectReason('');
-                  setRejectErrorToast('');
                 }}
                 className="flex-1 rounded-xl border border-dashboard-border bg-dashboard-surface py-2 text-zinc-200 hover:bg-white/10"
               >
-                Hủy
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
                 onClick={handleRejectSubmit}
                 className="flex-1 rounded-xl bg-red-600 py-2 text-white hover:bg-red-700"
               >
-                Từ chối
+                {t('moderation.reject')}
               </button>
             </div>
           </div>
@@ -724,7 +829,7 @@ export default function ModerationPage() {
           role="button"
           tabIndex={0}
           onKeyDown={(e) => e.key === 'Escape' && setPhotoModalUrl(null)}
-          aria-label="Đóng"
+          aria-label={t('common.closeAria')}
         >
           <div className="relative">
             <button
@@ -734,13 +839,13 @@ export default function ModerationPage() {
                 setPhotoModalUrl(null);
               }}
               className="absolute -right-2 -top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-dashboard-card border border-dashboard-border text-zinc-300 shadow-md hover:bg-white/10 hover:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              aria-label="Đóng ảnh"
+              aria-label={t('common.closeImageAria')}
             >
               <FaXmark className="h-5 w-5" />
             </button>
             <ReportImage
               src={photoModalUrl}
-              alt="Ảnh báo cáo ngập"
+              alt={t('moderation.reportImageAlt')}
               className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-xl"
               onClick={(e) => e.stopPropagation()}
             />

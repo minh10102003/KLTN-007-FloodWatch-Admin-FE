@@ -1,7 +1,7 @@
 /** Ánh xạ pathname → khóa i18n trong `nav.*` (dùng cho breadcrumb & tiêu đề trang). */
 export const PATH_TO_NAV_KEY = {
   '/': 'nav.home',
-  '/quan-ly-bao-cao': 'nav.reports',
+  '/reports-management': 'nav.reports',
   '/moderation': 'nav.moderation',
   '/report-stats': 'nav.reportStats',
   '/research': 'nav.research',

@@ -33,13 +33,21 @@ export function TableBody({ children, className = '' }) {
   return <tbody className={className}>{children}</tbody>;
 }
 
-export function TableRow({ children, className = '' }) {
+export const TableRow = React.forwardRef(function TableRow(
+  { children, className = '', onClick, ...rest },
+  ref
+) {
   return (
-    <tr className={`border-b border-dashboard-border hover:bg-white/5 ${className}`}>
+    <tr
+      ref={ref}
+      onClick={onClick}
+      className={`border-b border-dashboard-border hover:bg-white/5 ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      {...rest}
+    >
       {children}
     </tr>
   );
-}
+});
 
 export function TableTh({ children, className = '' }) {
   return (

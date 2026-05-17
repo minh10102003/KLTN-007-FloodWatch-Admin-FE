@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastProvider } from './components/ui/Toast';
+import { NotificationProvider } from './contexts/NotificationContext';
 import { canAccessAdminApp, isAdmin, isModerator } from './utils/auth';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -47,6 +48,7 @@ function App() {
         v7_relativeSplatPath: true,
       }}
     >
+      <NotificationProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
@@ -70,7 +72,7 @@ function App() {
           }
         />
         <Route
-          path="/quan-ly-bao-cao"
+          path="/reports-management"
           element={
             <AdminOnlyRoute>
               <Layout>
@@ -79,6 +81,7 @@ function App() {
             </AdminOnlyRoute>
           }
         />
+        <Route path="/quan-ly-bao-cao" element={<Navigate to="/reports-management" replace />} />
         <Route
           path="/moderation"
           element={
@@ -191,6 +194,7 @@ function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </NotificationProvider>
     </Router>
     </ToastProvider>
   );
