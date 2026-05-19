@@ -14,6 +14,8 @@ import {
 import { FaArrowsRotate } from 'react-icons/fa6';
 import { getHeatmap, getHeatmapCombined, getHeatmapTimeline24h } from '../services/api';
 import { useToast } from '../components/ui/Toast';
+import { HeatmapTimelineTooltip } from '../components/admin/HeatmapTimelineTooltip';
+import { HeatmapGridPreview } from '../components/admin/HeatmapGridPreview';
 
 const BBOX_KEYS = ['minLng', 'minLat', 'maxLng', 'maxLat'];
 
@@ -46,26 +48,35 @@ export default function HeatmapAnalyticsPage() {
     return { minLng, minLat, maxLng, maxLat, gridSize: Number(gridSize) || 500 };
   }, [bbox, gridSize]);
 
-  const chartData = useMemo(
-    () =>
-      (timeline || []).map((row) => ({
+  const chartData = useMemo(() => {
+    const sensorLbl = t('heatmap.chartSensorPts');
+    const crowdLbl = t('heatmap.chartCrowdPts');
+    const waterLbl = t('heatmap.chartSensorAvg');
+    return (timeline || []).map((row) => {
+      const bucket = row.bucket_time ?? row.bucket;
+      return {
         hour:
-          row.bucket != null
-            ? new Date(row.bucket).toLocaleString(chartLocale, {
+          bucket != null
+            ? new Date(bucket).toLocaleString(chartLocale, {
                 weekday: 'short',
                 hour: '2-digit',
                 day: '2-digit',
                 month: '2-digit',
               })
             : '',
-        total: row.total_points ?? 0,
-        sensorPts: row.sensor_points ?? 0,
-        crowdPts: row.crowd_points ?? 0,
+        total: Number(row.total_points ?? 0),
+        sensorPts: Number(row.sensor_points ?? 0),
+        crowdPts: Number(row.crowd_points ?? 0),
         sensorAvg: row.sensor_avg_water_level != null ? Number(row.sensor_avg_water_level) : null,
+        sensorTemp: row.sensor_avg_temperature != null ? Number(row.sensor_avg_temperature) : null,
+        sensorHum: row.sensor_avg_humidity != null ? Number(row.sensor_avg_humidity) : null,
         crowdAvg: row.crowd_avg_water_level != null ? Number(row.crowd_avg_water_level) : null,
-      })),
-    [timeline, chartLocale, i18n.language]
-  );
+        sensorLabel: sensorLbl,
+        crowdLabel: crowdLbl,
+        waterLabel: waterLbl,
+      };
+    });
+  }, [timeline, chartLocale, t]);
 
   const load = async () => {
     setLoading(true);
@@ -144,15 +155,22 @@ export default function HeatmapAnalyticsPage() {
         {chartData.length === 0 ? (
           <p className="text-sm text-zinc-500">{t('heatmap.timelineEmpty')}</p>
         ) : (
-          <ResponsiveContainer width="100%" height={320}>
-            <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <ResponsiveContainer width="100%" height={340}>
+            <ComposedChart data={chartData} margin={{ top: 8, right: 52, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#52525b" />
               <XAxis dataKey="hour" tick={{ fontSize: 10, fill: '#a1a1aa' }} interval={2} />
               <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#a1a1aa' }} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#a1a1aa' }} />
-              <Tooltip
-                contentStyle={{ borderRadius: 8, border: '1px solid #404040', backgroundColor: '#27272a', color: '#f4f4f5' }}
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#fbbf24' }} />
+              <YAxis
+                yAxisId="env"
+                orientation="right"
+                width={36}
+                domain={[0, 100]}
+                tick={{ fontSize: 10, fill: '#38bdf8' }}
+                axisLine={false}
+                tickLine={false}
               />
+              <Tooltip content={<HeatmapTimelineTooltip />} />
               <Legend />
               <Bar yAxisId="left" dataKey="sensorPts" name={t('heatmap.chartSensorPts')} fill="#8b5cf6" stackId="a" />
               <Bar yAxisId="left" dataKey="crowdPts" name={t('heatmap.chartCrowdPts')} fill="#22c55e" stackId="a" />
@@ -164,6 +182,28 @@ export default function HeatmapAnalyticsPage() {
                 stroke="#fbbf24"
                 dot={false}
                 strokeWidth={2}
+                connectNulls
+              />
+              <Line
+                yAxisId="env"
+                type="monotone"
+                dataKey="sensorTemp"
+                name={t('heatmap.chartSensorTemp')}
+                stroke="#38bdf8"
+                dot={false}
+                strokeWidth={1.5}
+                connectNulls
+              />
+              <Line
+                yAxisId="env"
+                type="monotone"
+                dataKey="sensorHum"
+                name={t('heatmap.chartSensorHum')}
+                stroke="#22d3ee"
+                dot={false}
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                connectNulls
               />
             </ComposedChart>
           </ResponsiveContainer>
@@ -172,12 +212,26 @@ export default function HeatmapAnalyticsPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
-          <h3 className="text-sm font-medium text-zinc-200">{t('heatmap.heatmapSensorOnly')}</h3>
-          <p className="mt-1 text-xs text-zinc-500">{t('common.cellCount', { count: heatmap.length })}</p>
+          <HeatmapGridPreview
+            mode="cells"
+            cells={heatmap}
+            bbox={bboxParams}
+            title={t('heatmap.heatmapSensorOnly')}
+            subtitle={t('heatmap.mapSensorOnlyDesc')}
+            emptyHint={t('heatmap.mapPreviewEmpty')}
+          />
+          <p className="mt-2 text-xs text-zinc-500">{t('common.cellCount', { count: heatmap.length })}</p>
         </section>
         <section className="rounded-xl border border-dashboard-border bg-dashboard-card p-4">
-          <h3 className="text-sm font-medium text-zinc-200">{t('heatmap.heatmapCombined')}</h3>
-          <p className="mt-1 text-xs text-zinc-500">{t('common.pointCount', { count: combined.length })}</p>
+          <HeatmapGridPreview
+            mode="points"
+            points={combined}
+            bbox={bboxParams}
+            title={t('heatmap.heatmapCombined')}
+            subtitle={t('heatmap.mapCombinedDesc')}
+            emptyHint={t('heatmap.mapPreviewEmpty')}
+          />
+          <p className="mt-2 text-xs text-zinc-500">{t('common.pointCount', { count: combined.length })}</p>
         </section>
       </div>
     </div>

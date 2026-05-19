@@ -1,10 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FaArrowsRotate } from 'react-icons/fa6';
 import { getAdminDevicesHealth } from '../services/api';
 import { Table, TableBody, TableHead, TableRow, TableTh, TableTd } from '../components/ui/Table';
 import { formatAdminDateTime } from '../utils/formatDateTime';
 import { useToast } from '../components/ui/Toast';
+import {
+  DEVICE_HEALTH_REFRESH,
+  buildHealthSummary,
+  classifyHealthClient,
+} from '../utils/deviceHealthEvents';
+
+const POLL_MS = Number(import.meta.env.VITE_DEVICE_HEALTH_POLL_MS) || 15000;
+const TICK_MS = 30000;
 
 const HEALTH_I18N_KEYS = {
   online: 'healthOnline',
@@ -27,7 +35,7 @@ function healthBadgeClass(h) {
   return 'bg-violet-500/20 text-violet-200 border-violet-500/40';
 }
 
-/** B1 — Sức khỏe thiết bị (chỉ Admin, JWT). */
+/** B1 — Sức khỏe thiết bị (chỉ Admin, JWT). Tự làm mới định kỳ + khi socket báo sensor offline. */
 export default function DeviceHealthPage() {
   const { t, i18n } = useTranslation();
   const { toast } = useToast();
@@ -36,27 +44,79 @@ export default function DeviceHealthPage() {
   const [summary, setSummary] = useState(null);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [filter, setFilter] = useState('all');
+  const loadGenRef = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const res = await getAdminDevicesHealth();
-    setLoading(false);
-    if (res.success) {
-      setRows(res.data || []);
-      setSummary(res.summary || null);
-      setMeta(res.meta || null);
-    } else {
-      setRows([]);
-      setSummary(null);
-      setMeta(null);
-      toast(res.error || t('deviceHealth.errLoad'), 'error');
-    }
-  }, [t, toast]);
+  const thresholds = useMemo(() => {
+    const tm = meta?.thresholds_minutes;
+    if (!tm) return null;
+    return {
+      onlineMax: tm.onlineMax ?? tm.online_max ?? 2,
+      degradedMax: tm.degradedMax ?? tm.degraded_max ?? 5,
+    };
+  }, [meta]);
+
+  const load = useCallback(
+    async ({ silent = false } = {}) => {
+      const gen = ++loadGenRef.current;
+      if (!silent) setLoading(true);
+      else setRefreshing(true);
+
+      const res = await getAdminDevicesHealth();
+
+      if (gen !== loadGenRef.current) return;
+
+      if (!silent) setLoading(false);
+      setRefreshing(false);
+
+      if (res.success) {
+        setRows(res.data || []);
+        setSummary(res.summary || null);
+        setMeta(res.meta || null);
+        setLastUpdated(new Date());
+      } else if (!silent) {
+        setRows([]);
+        setSummary(null);
+        setMeta(null);
+        toast(res.error || t('deviceHealth.errLoad'), 'error');
+      }
+    },
+    [t, toast]
+  );
 
   useEffect(() => {
     load();
+    const poll = setInterval(() => load({ silent: true }), POLL_MS);
+    return () => clearInterval(poll);
   }, [load]);
+
+  useEffect(() => {
+    const onRefresh = () => load({ silent: true });
+    window.addEventListener(DEVICE_HEALTH_REFRESH, onRefresh);
+    return () => window.removeEventListener(DEVICE_HEALTH_REFRESH, onRefresh);
+  }, [load]);
+
+  useEffect(() => {
+    if (!thresholds) return undefined;
+    const tick = setInterval(() => {
+      setRows((prev) => {
+        const next = prev.map((r) => {
+          const c = classifyHealthClient(r, thresholds);
+          return {
+            ...r,
+            health: c.health,
+            health_reason: c.reason,
+            minutes_since_data: c.minutes_since_data,
+          };
+        });
+        setSummary(buildHealthSummary(next));
+        return next;
+      });
+    }, TICK_MS);
+    return () => clearInterval(tick);
+  }, [thresholds]);
 
   const filtered = useMemo(() => {
     if (filter === 'all') return rows;
@@ -68,17 +128,22 @@ export default function DeviceHealthPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-zinc-100">{t('deviceHealth.title')}</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            {t('deviceHealth.subtitle')}
-          </p>
+          <p className="mt-1 text-sm text-zinc-500">{t('deviceHealth.subtitle')}</p>
+          <p className="mt-1 text-xs text-zinc-600">{t('deviceHealth.autoRefreshHint', { seconds: POLL_MS / 1000 })}</p>
+          {lastUpdated && (
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {t('deviceHealth.lastUpdated')}: {formatAdminDateTime(lastUpdated.toISOString(), dateLocale)}
+              {refreshing ? ` · ${t('deviceHealth.syncing')}` : ''}
+            </p>
+          )}
         </div>
         <button
           type="button"
-          onClick={load}
+          onClick={() => load({ silent: false })}
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-xl border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-50"
         >
-          <FaArrowsRotate /> {t('deviceHealth.refresh')}
+          <FaArrowsRotate className={refreshing ? 'animate-spin' : ''} /> {t('deviceHealth.refresh')}
         </button>
       </div>
 

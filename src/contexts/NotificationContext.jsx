@@ -12,6 +12,7 @@ import {
   dispatchOpenModerationReport,
   shouldSuppressModerationSocketToast,
 } from '../utils/moderationEvents';
+import { dispatchDeviceHealthRefresh } from '../utils/deviceHealthEvents';
 import { canReceiveNotificationType } from '../utils/notificationPolicy';
 import {
   loadNotificationsForCurrentUser,
@@ -93,6 +94,10 @@ export function NotificationProvider({ children }) {
       if (showToast && !skipToast) {
         const msg = messageFor(item);
         toast(msg, item.type === 'sensor_offline' ? 'error' : 'info');
+      }
+
+      if (item.type === 'sensor_offline') {
+        dispatchDeviceHealthRefresh(item.type);
       }
 
       if (
