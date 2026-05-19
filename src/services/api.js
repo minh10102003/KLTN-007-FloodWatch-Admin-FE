@@ -530,16 +530,21 @@ export const getResearchEvaluation = async (params = {}) => {
  * Research D2 - Cold-start hotspots.
  * GET /api/v1/research/cold-start-hotspots
  */
+const appendResearchD2Query = (q, params) => {
+  if (params.report_hours != null) q.set('report_hours', String(params.report_hours));
+  if (params.sensor_hours != null) q.set('sensor_hours', String(params.sensor_hours));
+  if (params.no_sensor_radius_m != null) q.set('no_sensor_radius_m', String(params.no_sensor_radius_m));
+  if (params.min_reports != null) q.set('min_reports', String(params.min_reports));
+  if (params.min_lng != null) q.set('min_lng', String(params.min_lng));
+  if (params.max_lng != null) q.set('max_lng', String(params.max_lng));
+  if (params.min_lat != null) q.set('min_lat', String(params.min_lat));
+  if (params.max_lat != null) q.set('max_lat', String(params.max_lat));
+};
+
 export const getResearchColdStartHotspots = async (params = {}) => {
   try {
     const q = new URLSearchParams();
-    if (params.report_hours != null) q.set('report_hours', String(params.report_hours));
-    if (params.no_sensor_radius_m != null) q.set('no_sensor_radius_m', String(params.no_sensor_radius_m));
-    if (params.min_reports != null) q.set('min_reports', String(params.min_reports));
-    if (params.min_lng != null) q.set('min_lng', String(params.min_lng));
-    if (params.max_lng != null) q.set('max_lng', String(params.max_lng));
-    if (params.min_lat != null) q.set('min_lat', String(params.min_lat));
-    if (params.max_lat != null) q.set('max_lat', String(params.max_lat));
+    appendResearchD2Query(q, params);
     const query = q.toString();
     const { data } = await apiClient.get(
       `${API_ENDPOINTS.RESEARCH_COLD_START_HOTSPOTS}${query ? `?${query}` : ''}`
@@ -552,6 +557,36 @@ export const getResearchColdStartHotspots = async (params = {}) => {
     return {
       success: false,
       data: [],
+      error: err.response?.data?.error || err.response?.data?.message || err.message,
+      status: err.response?.status,
+    };
+  }
+};
+
+/**
+ * Research D2 debug — histogram khoảng cách sensor (cùng sensor_hours như D1/D2).
+ * GET /api/v1/research/cold-start-hotspots/debug
+ */
+export const getResearchColdStartHotspotsDebug = async (params = {}) => {
+  try {
+    const q = new URLSearchParams();
+    appendResearchD2Query(q, params);
+    const query = q.toString();
+    const { data } = await apiClient.get(
+      `${API_ENDPOINTS.RESEARCH_COLD_START_HOTSPOTS_DEBUG}${query ? `?${query}` : ''}`
+    );
+    if (data?.success && data?.data) {
+      return { success: true, data: data.data, meta: data.meta || null };
+    }
+    return {
+      success: false,
+      data: null,
+      error: data?.error || data?.message || 'Không tải được dữ liệu debug',
+    };
+  } catch (err) {
+    return {
+      success: false,
+      data: null,
       error: err.response?.data?.error || err.response?.data?.message || err.message,
       status: err.response?.status,
     };

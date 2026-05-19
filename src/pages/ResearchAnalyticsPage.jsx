@@ -2,7 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FaFlaskVial } from 'react-icons/fa6';
 import { Droplets } from 'lucide-react';
-import { getResearchColdStartHotspots, getResearchEvaluation } from '../services/api';
+import {
+  getResearchColdStartHotspots,
+  getResearchColdStartHotspotsDebug,
+  getResearchEvaluation,
+} from '../services/api';
+import { ColdStartDebugPanel } from '../components/admin/ColdStartDebugPanel';
+import { HotspotLocationCell } from '../components/admin/HotspotLocationCell';
 import { Table, TableBody, TableHead, TableRow, TableTh, TableTd } from '../components/ui/Table';
 import ResearchFilters from '../components/admin/ResearchFilters';
 import { MetricCard } from '../components/common/MetricCard';
@@ -12,6 +18,7 @@ import { formatMetersToKm } from '../utils/formatters';
 import { formatAdminDateTime } from '../utils/formatDateTime';
 import i18n from '../i18n/config';
 import { useToast } from '../components/ui/Toast';
+import { downloadResearchHotspotsWorkbook } from '../utils/researchHotspotExport';
 
 const defaultFilters = {
   crowd_hours: 72,
@@ -31,6 +38,36 @@ const numberOrNull = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const buildBboxQuery = (f) => ({
+  ...(numberOrNull(f.min_lng) != null ? { min_lng: numberOrNull(f.min_lng) } : {}),
+  ...(numberOrNull(f.max_lng) != null ? { max_lng: numberOrNull(f.max_lng) } : {}),
+  ...(numberOrNull(f.min_lat) != null ? { min_lat: numberOrNull(f.min_lat) } : {}),
+  ...(numberOrNull(f.max_lat) != null ? { max_lat: numberOrNull(f.max_lat) } : {}),
+});
+
+const REQUIRED_NUMERIC_KEYS = [
+  'crowd_hours',
+  'sensor_hours',
+  'report_hours',
+  'no_sensor_radius_m',
+  'min_reports',
+];
+
+const BBOX_KEYS = ['min_lng', 'max_lng', 'min_lat', 'max_lat'];
+
+const getBboxFillState = (f) => {
+  const filled = BBOX_KEYS.filter((k) => String(f[k] ?? '').trim() !== '');
+  return { filledCount: filled.length, partial: filled.length > 0 && filled.length < 4 };
+};
+
+const buildD2ApiParams = (f) => ({
+  report_hours: Number(f.report_hours),
+  sensor_hours: Number(f.sensor_hours),
+  no_sensor_radius_m: Number(f.no_sensor_radius_m),
+  min_reports: Number(f.min_reports),
+  ...buildBboxQuery(f),
+});
+
 const pctImprovement = (baseline, fused) => {
   if (baseline == null || fused == null) return null;
   if (Number(baseline) === 0) return null;
@@ -47,51 +84,78 @@ export default function ResearchAnalyticsPage() {
   const [evaluationMeta, setEvaluationMeta] = useState(null);
   const [hotspots, setHotspots] = useState([]);
   const [hotspotsMeta, setHotspotsMeta] = useState(null);
+  const [hotspotDebug, setHotspotDebug] = useState(null);
+  const [hotspotDebugLoading, setHotspotDebugLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  const queryCommonBbox = {
-    ...(numberOrNull(filters.min_lng) != null ? { min_lng: numberOrNull(filters.min_lng) } : {}),
-    ...(numberOrNull(filters.max_lng) != null ? { max_lng: numberOrNull(filters.max_lng) } : {}),
-    ...(numberOrNull(filters.min_lat) != null ? { min_lat: numberOrNull(filters.min_lat) } : {}),
-    ...(numberOrNull(filters.max_lat) != null ? { max_lat: numberOrNull(filters.max_lat) } : {}),
-  };
+  const load = async (filtersOverride = null, { silent = false } = {}) => {
+    const f = filtersOverride ?? filters;
+    const invalidKey = REQUIRED_NUMERIC_KEYS.find((key) => !Number.isFinite(Number(f[key])) || Number(f[key]) <= 0);
+    if (invalidKey) {
+      toast(t('research.invalidFilters'), 'error');
+      return;
+    }
 
-  const load = async () => {
+    const bboxState = getBboxFillState(f);
+    if (bboxState.partial && !silent) {
+      toast(t('research.bboxPartialWarning', { count: bboxState.filledCount }), 'info');
+    }
+
+    const bboxQuery = buildBboxQuery(f);
+    const d2Params = buildD2ApiParams(f);
     setLoading(true);
+    setHotspotDebug(null);
     const [d1, d2] = await Promise.all([
       getResearchEvaluation({
-        crowd_hours: Number(filters.crowd_hours),
-        sensor_hours: Number(filters.sensor_hours),
-        ...queryCommonBbox,
+        crowd_hours: Number(f.crowd_hours),
+        sensor_hours: Number(f.sensor_hours),
+        ...bboxQuery,
       }),
-      getResearchColdStartHotspots({
-        report_hours: Number(filters.report_hours),
-        no_sensor_radius_m: Number(filters.no_sensor_radius_m),
-        min_reports: Number(filters.min_reports),
-        ...queryCommonBbox,
-      }),
+      getResearchColdStartHotspots(d2Params),
     ]);
     setLoading(false);
-    setLoaded(true);
 
+    let ok = false;
     if (d1.success) {
       setEvaluation(d1.data);
       setEvaluationMeta(d1.meta);
+      ok = true;
     } else {
       setEvaluation(null);
       setEvaluationMeta(null);
-      toast(i18n.t('common.errorGeneric'), 'error');
+      toast(d1.error || i18n.t('common.errorGeneric'), 'error');
     }
 
     if (d2.success) {
       const sorted = [...(d2.data || [])].sort((a, b) => (b.report_count || 0) - (a.report_count || 0));
       setHotspots(sorted);
       setHotspotsMeta(d2.meta);
+      ok = true;
+      if (!sorted.length) {
+        setHotspotDebugLoading(true);
+        const dbg = await getResearchColdStartHotspotsDebug(d2Params);
+        setHotspotDebugLoading(false);
+        if (dbg.success) setHotspotDebug(dbg.data);
+        else setHotspotDebug(null);
+      }
     } else {
       setHotspots([]);
       setHotspotsMeta(null);
-      toast(i18n.t('common.errorGeneric'), 'error');
+      setHotspotDebug(null);
+      if (d1.success) toast(d2.error || i18n.t('common.errorGeneric'), 'error');
+    }
+
+    if (ok) {
+      setLoaded(true);
+      if (!silent) {
+        const sampleCount = d1.success ? d1.data?.sample_count ?? 0 : 0;
+        const hotspotCount = d2.success ? (d2.data?.length ?? 0) : 0;
+        toast(t('research.applySuccess', { samples: sampleCount, hotspots: hotspotCount }), 'success');
+      }
+    } else {
+      setLoaded(false);
     }
   };
 
@@ -101,7 +165,9 @@ export default function ResearchAnalyticsPage() {
     setEvaluationMeta(null);
     setHotspots([]);
     setHotspotsMeta(null);
+    setHotspotDebug(null);
     setLoaded(false);
+    void load(defaultFilters);
   };
 
   const hotspotsWithPriority = useMemo(() => {
@@ -124,50 +190,35 @@ export default function ResearchAnalyticsPage() {
   const rmseImprovement = pctImprovement(evaluation?.baseline_crowd_only?.rmse_cm, evaluation?.fused_model?.rmse_cm);
   const maeImprovement = pctImprovement(evaluation?.baseline_crowd_only?.mae_cm, evaluation?.fused_model?.mae_cm);
 
-  const exportCsv = () => {
-    if (!hotspotsWithPriority.length) return;
-    const header = [
-      '#',
-      'hotspot_lng',
-      'hotspot_lat',
-      'report_count',
-      'avg_crowd_cm',
-      'max_crowd_cm',
-      'nearest_sensor_min_dist_m',
-      'latest_report_at',
-      'priority_score',
-      'priority_level',
-    ];
-    const rows = hotspotsWithPriority.map((h, idx) => [
-      String(idx + 1),
-      String(h.hotspot_lng ?? ''),
-      String(h.hotspot_lat ?? ''),
-      String(h.report_count ?? 0),
-      String(h.avg_crowd_cm ?? ''),
-      String(h.max_crowd_cm ?? ''),
-      String(h.nearest_sensor_min_dist_m ?? ''),
-      String(h.latest_report_at ?? ''),
-      String(h.priority_score ?? ''),
-      h.priority_level_key ?? '',
-    ]);
-    const csv = [header, ...rows].map((row) => row.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `research-hotspots-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportExcel = async () => {
+    if (!hotspotsWithPriority.length || exporting) return;
+    setExporting(true);
+    try {
+      const lng = i18nReact.language?.startsWith('en') ? 'en' : 'vi';
+      await downloadResearchHotspotsWorkbook({
+        hotspots: hotspotsWithPriority,
+        meta: hotspotsMeta,
+        evaluation,
+        filters,
+        locale: lng,
+      });
+      toast(t('research.exportSuccess'), 'success');
+    } catch {
+      toast(t('research.exportError'), 'error');
+    } finally {
+      setExporting(false);
+    }
   };
 
   useEffect(() => {
-    load();
+    load(null, { silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const crowdH = evaluationMeta?.crowd_report_hours ?? filters.crowd_hours;
   const sensorH = evaluationMeta?.sensor_log_hours ?? filters.sensor_hours;
   const reportH = hotspotsMeta?.report_hours ?? filters.report_hours;
+  const d2SensorH = hotspotsMeta?.sensor_hours ?? filters.sensor_hours;
   const radiusM = hotspotsMeta?.no_sensor_radius_m ?? filters.no_sensor_radius_m;
   const lng = i18nReact.language?.startsWith('en') ? 'en' : 'vi';
 
@@ -183,12 +234,13 @@ export default function ResearchAnalyticsPage() {
       <ResearchFilters
         filters={filters}
         setFilters={setFilters}
-        onApply={load}
+        onApply={() => load()}
         onReset={reset}
         loading={loading}
-        onExportCsv={exportCsv}
-        exportDisabled={!hotspotsWithPriority.length}
-        onRetry={load}
+        onExportExcel={exportExcel}
+        exportDisabled={!hotspotsWithPriority.length || exporting}
+        exportLoading={exporting}
+        onRetry={() => load()}
         loaded={loaded}
       />
 
@@ -238,7 +290,11 @@ export default function ResearchAnalyticsPage() {
           <div>
             <h2 className="text-lg font-medium text-zinc-100">{t('research.d2Title')}</h2>
             <p className="mt-1 text-sm text-zinc-400">
-              {t('research.d2Subtitle', { hours: reportH, radius: formatMetersToKm(radiusM) })}
+              {t('research.d2Subtitle', {
+                reportHours: reportH,
+                sensorHours: d2SensorH,
+                radius: formatMetersToKm(radiusM),
+              })}
             </p>
           </div>
         </div>
@@ -265,29 +321,32 @@ export default function ResearchAnalyticsPage() {
         ) : loading ? (
           <TableSkeleton rows={8} cols={9} />
         ) : !hotspotsWithPriority.length ? (
-          <EmptyState
-            icon={<Droplets className="mx-auto h-12 w-12" />}
-            title={t('research.emptyData')}
-            description={t('research.emptyHint')}
-            action={
-              <button
-                type="button"
-                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
-              >
-                {t('research.adjustFilters')}
-              </button>
-            }
-          />
+          <div>
+            <EmptyState
+              icon={<Droplets className="mx-auto h-12 w-12" />}
+              title={t('research.emptyData')}
+              description={t('research.emptyHint')}
+              action={
+                <button
+                  type="button"
+                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                  className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
+                >
+                  {t('research.adjustFilters')}
+                </button>
+              }
+            />
+            <ColdStartDebugPanel stats={hotspotDebug} loading={hotspotDebugLoading} radiusM={radiusM} />
+          </div>
         ) : (
           <Table
-            colWidths={[5, 15, 10, 12, 12, 16, 10, 10, 10]}
+            colWidths={[5, 22, 8, 10, 10, 12, 10, 9, 14]}
             className="rounded-lg border border-dashboard-border"
           >
             <TableHead>
               <TableRow className="hover:bg-transparent">
                 <TableTh>#</TableTh>
-                <TableTh>{t('research.tableCoord')}</TableTh>
+                <TableTh title={t('research.hotspotCoordHint')}>{t('research.tableLocation')}</TableTh>
                 <TableTh>{t('research.tableReports')}</TableTh>
                 <TableTh>{t('research.tableAvgCm')}</TableTh>
                 <TableTh>{t('research.tableMaxCm')}</TableTh>
@@ -309,8 +368,8 @@ export default function ResearchAnalyticsPage() {
                 return (
                   <TableRow key={`${h.hotspot_lng}-${h.hotspot_lat}-${idx}`}>
                     <TableTd>{idx + 1}</TableTd>
-                    <TableTd className="font-mono text-xs">
-                      {fmt(h.hotspot_lng, 6)}, {fmt(h.hotspot_lat, 6)}
+                    <TableTd>
+                      <HotspotLocationCell lat={h.hotspot_lat} lng={h.hotspot_lng} />
                     </TableTd>
                     <TableTd>{h.report_count ?? 0}</TableTd>
                     <TableTd>{fmt(h.avg_crowd_cm)}</TableTd>

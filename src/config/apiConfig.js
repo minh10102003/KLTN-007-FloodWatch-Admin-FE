@@ -50,6 +50,8 @@ export const API_ENDPOINTS = {
   RESEARCH_EVALUATION: '/api/v1/research/evaluation',
   /** Research D2: hotspot cold-start (vùng báo cáo mạnh nhưng xa sensor). */
   RESEARCH_COLD_START_HOTSPOTS: '/api/v1/research/cold-start-hotspots',
+  /** Research D2 debug: histogram khoảng cách & lý do hotspot rỗng. */
+  RESEARCH_COLD_START_HOTSPOTS_DEBUG: '/api/v1/research/cold-start-hotspots/debug',
   /** A1 — Fusion crowd + sensor (bbox bắt buộc). */
   FUSION_POINTS: '/api/v1/fusion/points',
   /** A3 — Dự báo ngắn hạn theo sensor. */

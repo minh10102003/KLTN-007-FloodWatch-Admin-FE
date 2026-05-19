@@ -8,8 +8,9 @@ export default function ResearchFilters({
   onApply,
   onReset,
   loading,
-  onExportCsv,
+  onExportExcel,
   exportDisabled,
+  exportLoading,
   onRetry,
   loaded,
 }) {
@@ -17,11 +18,15 @@ export default function ResearchFilters({
   const row1 = ['crowd_hours', 'sensor_hours', 'report_hours', 'no_sensor_radius_m', 'min_reports'];
   const row2 = ['min_lng', 'max_lng', 'min_lat', 'max_lat'];
 
-  const inputProps = (key) => ({
+  const bboxFilledCount = row2.filter((k) => String(filters[k] ?? '').trim() !== '').length;
+  const bboxPartial = bboxFilledCount > 0 && bboxFilledCount < 4;
+
+  const inputProps = (key, { placeholder } = {}) => ({
     value: filters[key],
     onChange: (e) => setFilters((f) => ({ ...f, [key]: e.target.value })),
+    ...(placeholder != null ? { placeholder } : {}),
     className:
-      'mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500',
+      'mt-1 w-full rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500',
   });
 
   return (
@@ -39,10 +44,23 @@ export default function ResearchFilters({
         {row2.map((key) => (
           <label key={key} className="text-sm text-zinc-300">
             <span className="block leading-snug text-zinc-400">{t(`research.fields.${key}`)}</span>
-            <input type="number" step="any" {...inputProps(key)} />
+            <input
+              type="number"
+              step="any"
+              {...inputProps(key, { placeholder: t(`research.bboxPlaceholder.${key}`) })}
+            />
           </label>
         ))}
       </div>
+
+      {bboxPartial ? (
+        <p
+          className="mt-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+          role="status"
+        >
+          {t('research.bboxPartialWarning', { count: bboxFilledCount })}
+        </p>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button
@@ -62,11 +80,11 @@ export default function ResearchFilters({
         </button>
         <button
           type="button"
-          onClick={onExportCsv}
+          onClick={onExportExcel}
           disabled={exportDisabled}
           className="inline-flex items-center gap-2 rounded-lg border border-dashboard-border bg-dashboard-surface px-4 py-2 text-sm text-zinc-200 hover:bg-white/10 disabled:opacity-50"
         >
-          <FaDownload /> {t('common.exportCsv')}
+          <FaDownload /> {exportLoading ? t('common.loading') : t('research.exportExcel')}
         </button>
         {loaded && (
           <button
