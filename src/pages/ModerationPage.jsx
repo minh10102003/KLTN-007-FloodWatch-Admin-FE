@@ -2,12 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
-import { getReportsAll, moderateReport, skipReportAutoApprove } from '../services/api';
+import { fetchPendingReports, getReportsAll, moderateReport, skipReportAutoApprove } from '../services/api';
 import AutoApproveSummary from '../components/admin/AutoApproveSummary';
-import ReportAutoApproveBadge from '../components/admin/ReportAutoApproveBadge';
 import ReportAutoApproveDetailSection from '../components/admin/ReportAutoApproveDetailSection';
-import { isManualPendingReport } from '../utils/reportAutoApprove';
-import { REPORTS_FILTER_MANUAL_PENDING } from '../utils/reportFilterEvents';
+import ReportStatusBadges from '../components/admin/ReportStatusBadges';
+import {
+  canManualModerate,
+  isManualPendingReport,
+  isQueuePendingReport,
+} from '../utils/reportAutoApprove';
+import {
+  dispatchReportsSummaryRefresh,
+  REPORTS_FILTER_MANUAL_PENDING,
+} from '../utils/reportFilterEvents';
 import { getReporterReliabilityTier } from '../utils/reliabilityHelpers';
 import { reverseGeocode, getDisplayAddress } from '../utils/geocode';
 import { FaCheck, FaXmark, FaArrowsRotate, FaFilter, FaStar, FaGripVertical } from 'react-icons/fa6';
@@ -38,25 +45,12 @@ const LEVEL_CARD_STYLES = {
 };
 const levelDefaultStyle = 'bg-dashboard-surface border-dashboard-border text-zinc-200';
 
-/** Badge trạng thái trên card nền sáng (pastel) */
-const STATUS_BADGE_ON_LIGHT = {
-  approved: 'bg-emerald-600 text-white',
-  rejected: 'bg-zinc-600 text-white',
-  pending: 'bg-amber-600 text-white',
-};
-
 /** Chuẩn hóa status từ BE (có thể là status, moderation_status, is_approved, v.v.) */
 function getReportStatus(report) {
   if (report.status) return report.status;
   if (report.moderation_status) return report.moderation_status;
   if (typeof report.is_approved === 'boolean') return report.is_approved ? 'approved' : 'rejected';
   return 'pending';
-}
-
-function getModerationStatusLabel(status, t) {
-  if (status === 'approved') return t('reports.statusApproved');
-  if (status === 'rejected') return t('reports.statusRejected');
-  return t('reports.statusPending');
 }
 
 /** Lấy danh sách URL ảnh từ báo cáo (nhiều ảnh hoặc 1 ảnh, tương thích BE cũ) */
@@ -179,18 +173,16 @@ function useGeocodedAddress(report) {
 function ReportMiniCard({
   report,
   address,
-  statusLabel,
-  statusClass,
   onClick,
   className = '',
-  isPending = false,
+  draggable = false,
   onDragStart,
   onDragEnd,
   draggingId,
 }) {
   const { t } = useTranslation();
   const levelStyle = LEVEL_CARD_STYLES[report.flood_level] || levelDefaultStyle;
-  const isDragging = isPending && draggingId === report.id;
+  const isDragging = draggable && draggingId === report.id;
   const card = (
     <div
       role="button"
@@ -202,21 +194,16 @@ function ReportMiniCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-zinc-500">#{report.id}</p>
-          <ReportAutoApproveBadge report={report} className="mt-1" />
-          <p className="text-sm font-medium line-clamp-2 mt-0.5" title={address}>
+          <ReportStatusBadges report={report} className="mt-1.5" showHint />
+          <p className="text-sm font-medium line-clamp-2 mt-1" title={address}>
             {address}
           </p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <span className="text-xs font-semibold">{formatFloodLevel(report.flood_level, t)}</span>
-            {statusLabel && (
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}>
-                {statusLabel}
-              </span>
-            )}
             <ConfidenceBadge report={report} variant="onLight" />
           </div>
         </div>
-        {isPending && (
+        {draggable && (
           <div className="shrink-0 text-zinc-500 cursor-grab active:cursor-grabbing" onPointerDown={(e) => e.stopPropagation()} aria-hidden>
             <FaGripVertical className="w-4 h-4" />
           </div>
@@ -224,7 +211,7 @@ function ReportMiniCard({
       </div>
     </div>
   );
-  if (isPending && onDragStart && onDragEnd) {
+  if (draggable && onDragStart && onDragEnd) {
     return (
       <div
         draggable
@@ -292,10 +279,9 @@ function ReportDetailModalContent({
   const { t, i18n } = useTranslation();
   const dateLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
   const address = useGeocodedAddress(report);
-  const status = getReportStatus(report);
   const photoUrls = getReportPhotoUrls(report);
   const content = getReportContent(report);
-  const isPending = status === 'pending';
+  const canModerate = canManualModerate(report);
   const confidenceLines = getConfidenceBreakdownLines(report.confidence_breakdown, t);
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4" onClick={onClose} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Escape' && onClose()} aria-label={t('common.closeAria')}>
@@ -312,11 +298,9 @@ function ReportDetailModalContent({
         <div className="p-4 overflow-y-auto flex-1 space-y-4 text-zinc-300">
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-sm font-semibold ${levelColors[report.flood_level] || 'text-zinc-200'}`}>{formatFloodLevel(report.flood_level, t)}</span>
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${isPending ? 'bg-amber-500/30 text-amber-200' : status === 'approved' ? 'bg-emerald-500/30 text-emerald-200' : 'bg-zinc-600 text-zinc-400'}`}>
-              {getModerationStatusLabel(status, t)}
-            </span>
             <ConfidenceBadge report={report} variant="onLight" />
           </div>
+          <ReportStatusBadges report={report} className="mt-2" />
           <p className="text-sm">
             <span className="font-medium text-zinc-500">{t('moderation.locationLabel')}: </span>
             {address}
@@ -369,7 +353,7 @@ function ReportDetailModalContent({
             </div>
           )}
           <p className="text-xs text-zinc-500">{report.created_at ? new Date(report.created_at).toLocaleString(dateLocale) : ''}</p>
-          {isPending && (
+          {canModerate && (
             <div className="flex gap-2 pt-2">
               <button type="button" onClick={() => handleApprove(report.id)} disabled={processing === report.id} className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-green-600 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
                 <FaCheck /> {t('moderation.approve')}
@@ -391,42 +375,38 @@ function ReportDetailModalContent({
 }
 
 /** Card mini đã xử lý (ô trái) — dùng hook geocode, bấm mở popup */
-function ProcessedMiniCard({ report, getReportStatus, setDetailReport }) {
-  const { t } = useTranslation();
+function ProcessedMiniCard({ report, setDetailReport }) {
   const address = useGeocodedAddress(report);
-  const status = getReportStatus(report);
-  const statusLabel = getModerationStatusLabel(status, t);
-  const statusClass =
-    status === 'approved' ? STATUS_BADGE_ON_LIGHT.approved : STATUS_BADGE_ON_LIGHT.rejected;
   return (
     <ReportMiniCard
       report={report}
       address={address}
-      statusLabel={statusLabel}
-      statusClass={statusClass}
       onClick={() => setDetailReport(report)}
     />
   );
 }
 
 /** Card mini chờ duyệt (ô phải) — kéo được, bấm mở popup */
-function PendingMiniCard({ report, setDetailReport, setRejectModal, handleApprove, processing, draggingId, setDraggingId }) {
-  const { t } = useTranslation();
+function PendingMiniCard({ report, setDetailReport, draggingId, setDraggingId }) {
   const address = useGeocodedAddress(report);
+  const draggable = canManualModerate(report);
+  if (!isQueuePendingReport(report)) return null;
   return (
     <ReportMiniCard
       report={report}
       address={address}
-      statusLabel={t('reports.statusPending')}
-      statusClass={STATUS_BADGE_ON_LIGHT.pending}
       onClick={() => setDetailReport(report)}
-      isPending
-      onDragStart={(e) => {
-        e.dataTransfer.setData('text/plain', String(report.id));
-        e.dataTransfer.effectAllowed = 'move';
-        setDraggingId(report.id);
-      }}
-      onDragEnd={() => setDraggingId(null)}
+      draggable={draggable}
+      onDragStart={
+        draggable
+          ? (e) => {
+              e.dataTransfer.setData('text/plain', String(report.id));
+              e.dataTransfer.effectAllowed = 'move';
+              setDraggingId(report.id);
+            }
+          : undefined
+      }
+      onDragEnd={draggable ? () => setDraggingId(null) : undefined}
       draggingId={draggingId}
     />
   );
@@ -438,6 +418,7 @@ export default function ModerationPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const pendingOpenReportId = useRef(null);
   const [reports, setReports] = useState([]);
+  const [pendingQueue, setPendingQueue] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
   const [rejectModal, setRejectModal] = useState(null);
@@ -455,10 +436,19 @@ export default function ModerationPage() {
 
   const loadReports = useCallback(async () => {
     setLoading(true);
-    const result = await getReportsAll({ limit: 500 });
-    if (result.success && result.data) setReports(result.data);
+    const [allRes, pendingRes] = await Promise.all([
+      getReportsAll({ limit: 500 }),
+      fetchPendingReports(500),
+    ]);
+    if (allRes.success && allRes.data) setReports(allRes.data);
     else setReports([]);
+    if (pendingRes.success && Array.isArray(pendingRes.data)) {
+      setPendingQueue(pendingRes.data.filter((r) => isQueuePendingReport(r)));
+    } else {
+      setPendingQueue([]);
+    }
     setLoading(false);
+    dispatchReportsSummaryRefresh();
   }, []);
 
   const openReportById = useCallback(
@@ -572,6 +562,9 @@ export default function ModerationPage() {
       toast(result.message || t('moderation.toastApproved'), 'success');
       loadReports();
       setDetailReport((prev) => (prev?.id === reportId ? null : prev));
+    } else if (result.code === 'AUTO_APPROVED_CONFLICT') {
+      toast(result.error || t('autoApprove.conflictAutoApproved'), 'error');
+      loadReports();
     } else {
       toast(result.error || t('moderation.toastApproveFailed'), 'error');
     }
@@ -594,6 +587,9 @@ export default function ModerationPage() {
       toast(result.message || t('moderation.toastRejected'), 'success');
       loadReports();
       setDetailReport((prev) => (prev?.id === rejectModal.id ? null : prev));
+    } else if (result.code === 'AUTO_APPROVED_CONFLICT') {
+      toast(result.error || t('autoApprove.conflictAutoApproved'), 'error');
+      loadReports();
     } else {
       toast(result.error || t('moderation.toastRejectFailed'), 'error');
     }
@@ -633,13 +629,13 @@ export default function ModerationPage() {
   );
 
   const pendingReports = useMemo(() => {
-    const list = reports.filter((r) => getReportStatus(r) === 'pending');
+    const list = pendingQueue.filter((r) => isQueuePendingReport(r));
     return applyFilterAndSort(list);
-  }, [reports, applyFilterAndSort]);
+  }, [pendingQueue, applyFilterAndSort]);
 
   const displayPendingReports = useMemo(() => {
     if (!manualPendingOnly) return pendingReports;
-    return pendingReports.filter((r) => isManualPendingReport(r, 'pending'));
+    return pendingReports.filter((r) => isManualPendingReport(r));
   }, [pendingReports, manualPendingOnly]);
 
   const processedReports = useMemo(() => {
@@ -658,7 +654,7 @@ export default function ModerationPage() {
       const reportId = e.dataTransfer.getData('text/plain');
       if (reportId) {
         const id = Number(reportId);
-        if (id && pendingReports.some((r) => r.id === id)) handleApprove(id);
+        if (id && pendingReports.some((r) => r.id === id && canManualModerate(r))) handleApprove(id);
       }
     },
     [pendingReports, handleApprove]
@@ -785,7 +781,6 @@ export default function ModerationPage() {
                     <ProcessedMiniCard
                       key={report.id}
                       report={report}
-                      getReportStatus={getReportStatus}
                       setDetailReport={setDetailReport}
                     />
                   ))}
@@ -818,9 +813,6 @@ export default function ModerationPage() {
                   key={report.id}
                   report={report}
                   setDetailReport={setDetailReport}
-                  setRejectModal={setRejectModal}
-                  handleApprove={handleApprove}
-                  processing={processing}
                   draggingId={draggingId}
                   setDraggingId={setDraggingId}
                 />

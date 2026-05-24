@@ -14,7 +14,7 @@ import {
 import { ChevronDown } from 'lucide-react';
 import { getReportsAll, getReportStats, skipReportAutoApprove } from '../services/api';
 import AutoApproveSummary from '../components/admin/AutoApproveSummary';
-import ReportAutoApproveBadge from '../components/admin/ReportAutoApproveBadge';
+import { ModerationStatusBadge, ValidationStatusBadge } from '../components/admin/ReportStatusBadges';
 import ReportAutoApproveDetailSection from '../components/admin/ReportAutoApproveDetailSection';
 import { isManualPendingReport } from '../utils/reportAutoApprove';
 import { REPORTS_FILTER_MANUAL_PENDING } from '../utils/reportFilterEvents';
@@ -30,6 +30,7 @@ import {
   MODERATION_OPEN_REPORT,
   MODERATION_REFRESH,
 } from '../utils/moderationEvents';
+import { dispatchReportsSummaryRefresh } from '../utils/reportFilterEvents';
 
 function formatFloodLevel(raw, t) {
   if (raw == null || raw === '') return '—';
@@ -41,7 +42,7 @@ function formatFloodLevel(raw, t) {
 }
 
 /** Độ rộng cột theo % — phân bổ đều, tránh cột Nội dung chiếm hết không gian */
-const REPORT_TABLE_COL_WIDTHS = [6, 11, 9, 9, 16, 22, 12, 15];
+const REPORT_TABLE_COL_WIDTHS = [5, 10, 10, 8, 8, 14, 18, 10, 15];
 
 function getReportStatus(report) {
   if (report.status) return report.status;
@@ -74,13 +75,6 @@ function getReportContent(report) {
 
 function ReportDetailView({ report, onClose, onPhotoClick, onSkipAutoApprove, skipProcessing, t, i18n }) {
   const dateLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
-  const status = getReportStatus(report);
-  const statusLabel =
-    status === 'pending'
-      ? t('reports.statusPending')
-      : status === 'approved'
-        ? t('reports.statusApproved')
-        : t('reports.statusRejected');
   const photoUrls = getReportPhotoUrls(report);
   const content = getReportContent(report);
   const locationText =
@@ -117,18 +111,11 @@ function ReportDetailView({ report, onClose, onPhotoClick, onSkipAutoApprove, sk
         <div className="p-4 overflow-y-auto flex-1 space-y-4 text-zinc-300">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-zinc-200">{formatFloodLevel(report.flood_level, t)}</span>
-            <span
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                status === 'pending'
-                  ? 'bg-amber-500/30 text-amber-200'
-                  : status === 'approved'
-                    ? 'bg-emerald-500/30 text-emerald-200'
-                    : 'bg-zinc-600 text-zinc-400'
-              }`}
-            >
-              {statusLabel}
-            </span>
             <ConfidenceBadge report={report} variant="onLight" />
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <ModerationStatusBadge report={report} />
+            <ValidationStatusBadge report={report} />
           </div>
           <p className="text-sm">
             <span className="font-medium text-zinc-500">{t('reports.colLocation')}: </span>
@@ -230,6 +217,7 @@ export default function ReportManagementPage() {
       });
       setStatsSummary({ pending, approved, rejected, total: list.length });
       setReportList(list);
+      dispatchReportsSummaryRefresh();
     } else {
       setStatsSummary({ pending: 0, approved: 0, rejected: 0, total: 0 });
       setReportList([]);
@@ -527,7 +515,8 @@ export default function ReportManagementPage() {
               <TableHead>
                 <TableRow>
                   <TableTh>{t('reports.colId')}</TableTh>
-                  <TableTh>{t('reports.colStatus')}</TableTh>
+                  <TableTh>{t('reports.colModeration')}</TableTh>
+                  <TableTh>{t('reports.colValidation')}</TableTh>
                   <TableTh>{t('reports.colSeverity')}</TableTh>
                   <TableTh>{t('reports.colConfidence')}</TableTh>
                   <TableTh>{t('reports.colLocation')}</TableTh>
@@ -538,19 +527,6 @@ export default function ReportManagementPage() {
               </TableHead>
               <TableBody>
                 {sortedReports.map((report) => {
-                  const status = getReportStatus(report);
-                  const statusLabel =
-                    status === 'pending'
-                      ? t('reports.statusPending')
-                      : status === 'approved'
-                        ? t('reports.statusApproved')
-                        : t('reports.statusRejected');
-                  const statusClass =
-                    status === 'pending'
-                      ? 'bg-amber-500/30 text-amber-200'
-                      : status === 'approved'
-                        ? 'bg-emerald-500/30 text-emerald-200'
-                        : 'bg-zinc-600 text-zinc-400';
                   const photoUrls = getReportPhotoUrls(report);
                   const content = getReportContent(report);
                   const locationTitle = report.location_description || (report.lat != null && report.lng != null ? `${report.lat}, ${report.lng}` : '');
@@ -574,14 +550,12 @@ export default function ReportManagementPage() {
                         }, { replace: true });
                       }}
                     >
-                      <TableTd className="font-medium text-zinc-200">
-                        <span className="block">#{report.id}</span>
-                        <ReportAutoApproveBadge report={report} className="mt-1" />
+                      <TableTd className="font-medium text-zinc-200">#{report.id}</TableTd>
+                      <TableTd>
+                        <ModerationStatusBadge report={report} />
                       </TableTd>
                       <TableTd>
-                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}>
-                          {statusLabel}
-                        </span>
+                        <ValidationStatusBadge report={report} />
                       </TableTd>
                       <TableTd className="text-zinc-300">{formatFloodLevel(report.flood_level, t)}</TableTd>
                       <TableTd>

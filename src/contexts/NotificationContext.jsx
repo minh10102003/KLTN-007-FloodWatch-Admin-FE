@@ -19,6 +19,7 @@ import {
   persistNotificationsForCurrentUser,
 } from '../utils/notificationStorage';
 import { getReportFocusPath } from '../utils/reportRoutes';
+import { dispatchReportsSummaryRefresh } from '../utils/reportFilterEvents';
 import { useToast } from '../components/ui/Toast';
 
 const NotificationContext = createContext(null);
@@ -106,6 +107,7 @@ export function NotificationProvider({ children }) {
         item.type === 'report_rejected'
       ) {
         dispatchModerationRefresh(item.type);
+        dispatchReportsSummaryRefresh();
       }
     },
     [messageFor, toast]

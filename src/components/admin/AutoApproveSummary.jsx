@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getReportsSummary } from '../../services/api';
 import { normalizeReportsSummary } from '../../utils/reportAutoApprove';
-import { dispatchFilterManualPending } from '../../utils/reportFilterEvents';
+import {
+  dispatchFilterManualPending,
+  REPORTS_SUMMARY_REFRESH,
+} from '../../utils/reportFilterEvents';
 
 const REFRESH_MS = 30_000;
 
@@ -21,7 +24,7 @@ function SummaryCard({ label, value, accent, children }) {
 }
 
 /**
- * Dashboard tổng quan auto-approve — đặt TRÊN danh sách báo cáo.
+ * GET /api/reports/summary — 5 thẻ (sensor verified ≠ xác minh chéo trên từng báo cáo).
  */
 export default function AutoApproveSummary({ onFilterManualPending }) {
   const { t } = useTranslation();
@@ -43,8 +46,13 @@ export default function AutoApproveSummary({ onFilterManualPending }) {
 
   useEffect(() => {
     load();
-    const id = window.setInterval(load, REFRESH_MS);
-    return () => window.clearInterval(id);
+    const intervalId = window.setInterval(load, REFRESH_MS);
+    const onRefresh = () => load();
+    window.addEventListener(REPORTS_SUMMARY_REFRESH, onRefresh);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener(REPORTS_SUMMARY_REFRESH, onRefresh);
+    };
   }, [load]);
 
   const handleViewManual = () => {
@@ -57,7 +65,8 @@ export default function AutoApproveSummary({ onFilterManualPending }) {
       className="mb-6 rounded-xl border border-dashboard-border bg-dashboard-card p-5"
       aria-label={t('autoApprove.summaryTitle')}
     >
-      <h2 className="mb-4 text-lg font-semibold text-zinc-100">{t('autoApprove.summaryTitle')}</h2>
+      <h2 className="mb-1 text-lg font-semibold text-zinc-100">{t('autoApprove.summaryTitle')}</h2>
+      <p className="mb-4 text-xs text-zinc-500">{t('autoApprove.summarySensorNote')}</p>
       {error && (
         <p className="mb-3 text-sm text-amber-400" role="alert">
           {error}
@@ -71,14 +80,14 @@ export default function AutoApproveSummary({ onFilterManualPending }) {
         <SummaryCard
           label={t('autoApprove.cardAutoApproved')}
           value={loading ? '—' : summary.autoApproved}
-          accent="border-emerald-500/40 bg-emerald-500/10"
+          accent="border-violet-500/40 bg-violet-500/10"
         />
         <SummaryCard
           label={t('autoApprove.cardPendingManual')}
-          value={loading ? '—' : summary.pendingManual}
+          value={loading ? '—' : summary.pendingManualReview}
           accent="border-amber-500/40 bg-amber-500/10"
         >
-          {!loading && summary.pendingManual > 0 && (
+          {!loading && summary.pendingManualReview > 0 && (
             <button
               type="button"
               onClick={handleViewManual}
@@ -94,8 +103,8 @@ export default function AutoApproveSummary({ onFilterManualPending }) {
           accent="border-sky-500/40 bg-sky-500/10"
         />
         <SummaryCard
-          label={t('autoApprove.cardNearThreshold')}
-          value={loading ? '—' : summary.nearThreshold}
+          label={t('autoApprove.cardPendingAutoApprove')}
+          value={loading ? '—' : summary.pendingAutoApprove}
           accent="border-zinc-500/40 bg-zinc-500/10"
         />
       </div>

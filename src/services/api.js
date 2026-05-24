@@ -469,9 +469,18 @@ export const moderateReport = async (reportId, action, rejectionReason = null) =
   const payload = action === 'reject' && rejectionReason
     ? { action, rejection_reason: rejectionReason }
     : { action };
-  const { data } = await apiClient.put(url, payload);
-  if (data?.success) return { success: true, message: data.message };
-  return { success: false, error: data?.error || 'Thao tác thất bại' };
+  try {
+    const { data } = await apiClient.put(url, payload);
+    if (data?.success) return { success: true, message: data.message };
+    return { success: false, error: data?.error || data?.message || 'Thao tác thất bại' };
+  } catch (err) {
+    const status = err.response?.status;
+    const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+    if (status === 409) {
+      return { success: false, error: msg, code: 'AUTO_APPROVED_CONFLICT' };
+    }
+    return { success: false, error: msg };
+  }
 };
 
 /**

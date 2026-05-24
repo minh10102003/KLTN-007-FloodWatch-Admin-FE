@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  getReportNeighborCount,
-  isReportAutoApproved,
-  isReportSensorVerified,
-} from '../../utils/reportAutoApprove';
+import { getDisplayModeration } from '../../utils/reportDisplayStatus';
+import { getReportNeighborCount, isReportAutoApproved } from '../../utils/reportAutoApprove';
+import { ModerationStatusBadge, ValidationStatusBadge } from './ReportStatusBadges';
 
 /**
- * Section auto-approve — append cuối modal chi tiết (không thay nút duyệt/từ chối cũ).
+ * Section auto-approve — append cuối modal chi tiết.
  */
 export default function ReportAutoApproveDetailSection({
   report,
@@ -18,7 +16,7 @@ export default function ReportAutoApproveDetailSection({
   const [localSkipping, setLocalSkipping] = useState(false);
   const neighborCount = getReportNeighborCount(report);
   const autoApproved = isReportAutoApproved(report);
-  const sensorVerified = isReportSensorVerified(report);
+  const dm = getDisplayModeration(report);
 
   const handleSkip = async () => {
     if (!onSkipAutoApprove || localSkipping || skipProcessing) return;
@@ -35,23 +33,18 @@ export default function ReportAutoApproveDetailSection({
   return (
     <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
       <p className="text-sm font-semibold text-violet-200">{t('autoApprove.detailTitle')}</p>
+      <div className="flex flex-wrap gap-2">
+        <ModerationStatusBadge report={report} />
+        <ValidationStatusBadge report={report} />
+      </div>
       <dl className="grid gap-2 text-sm">
         <div className="flex justify-between gap-3">
           <dt className="text-zinc-500">{t('autoApprove.neighborReports')}</dt>
           <dd className="font-medium text-zinc-100 tabular-nums">{neighborCount}</dd>
         </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-zinc-500">{t('autoApprove.sensorStatus')}</dt>
-          <dd className="font-medium text-zinc-100">
-            {sensorVerified ? t('autoApprove.sensorOk') : t('autoApprove.sensorMissing')}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-zinc-500">{t('autoApprove.autoStatus')}</dt>
-          <dd className="font-medium text-zinc-100">
-            {autoApproved ? t('autoApprove.wasAutoApproved') : t('autoApprove.awaitingManual')}
-          </dd>
-        </div>
+        {dm.hint ? (
+          <div className="text-xs text-amber-500/90">{dm.hint}</div>
+        ) : null}
       </dl>
       {!autoApproved && onSkipAutoApprove && (
         <button
