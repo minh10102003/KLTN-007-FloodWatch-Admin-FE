@@ -21,23 +21,25 @@ export function getReportNeighborCount(report) {
   return Number(n) || 0;
 }
 
-/** Hàng đợi chờ duyệt thủ công (GET /api/reports/pending + lọc FE). */
+/** Key kiểm duyệt đã kết thúc — không còn trong hàng chờ. */
+const TERMINAL_MODERATION_KEYS = new Set(['approved', 'rejected', 'auto_approved']);
+
+/**
+ * Báo cáo chờ duyệt thủ công (khớp pending_manual_review trên summary).
+ * Chỉ loại khi đã auto_approved hoặc display_moderation.key là trạng thái cuối.
+ * Không yêu cầu key === 'pending' (BE có thể gửi pending_manual_review, v.v.).
+ */
 export function isQueuePendingReport(report) {
   if (!report || isReportAutoApproved(report)) return false;
-  const mod = report.moderation_status ?? report.status;
-  if (mod !== 'pending') return false;
   const key = report.display_moderation?.key;
-  if (key && key !== 'pending') return false;
-  return true;
+  if (key && TERMINAL_MODERATION_KEYS.has(key)) return false;
+  const mod = report.moderation_status ?? report.status;
+  return mod === 'pending';
 }
 
-/** Lọc tab "chờ duyệt thủ công". */
+/** Lọc "chờ duyệt thủ công" — cùng điều kiện với hàng đợi bên phải. */
 export function isManualPendingReport(report) {
-  if (!report) return false;
-  const key = report.display_moderation?.key;
-  if (key === 'pending') return !isReportAutoApproved(report);
-  const mod = report.moderation_status ?? report.status;
-  return mod === 'pending' && !isReportAutoApproved(report);
+  return isQueuePendingReport(report);
 }
 
 /** Có thể kéo duyệt / từ chối thủ công. */

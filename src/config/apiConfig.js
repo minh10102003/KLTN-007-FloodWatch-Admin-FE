@@ -38,11 +38,12 @@ export const API_ENDPOINTS = {
   AUTH_USER_ROLE: '/api/auth/users/:userId/role',
   AUTH_USER_ACTIVE: '/api/auth/users/:userId/active',
   AUTH_USER_RECOMPUTE_RELIABILITY: '/api/auth/users/:userId/recompute-reliability',
-  REPORTS_PENDING: '/api/reports/pending',
+  /** Hàng đợi chờ duyệt (Admin/Moderator). */
+  REPORTS_PENDING: '/api/admin/reports/pending',
   /** Tất cả báo cáo (Admin/Moderator). GET /api/reports/all?limit=&moderation_status= */
   REPORTS_ALL: '/api/reports/all',
   CROWD_REPORTS: '/api/crowd-reports',
-  REPORT_MODERATE: '/api/reports/:reportId/moderate',
+  REPORT_MODERATE: '/api/admin/reports/:reportId/moderate',
   /** Tổng quan auto-approve hôm nay. GET /api/reports/summary */
   REPORTS_SUMMARY: '/api/reports/summary',
   /** Bỏ qua hàng đợi auto-approve. POST /api/reports/:reportId/skip-auto-approve */

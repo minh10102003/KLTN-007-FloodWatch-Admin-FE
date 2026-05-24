@@ -28,6 +28,9 @@ import {
   FLOOD_LEVEL_API_VALUES,
   formatFloodLevel,
   floodLevelFilterLabel,
+  floodLevelsMatch,
+  getFloodLevelCardStyle,
+  getFloodLevelTextColor,
 } from '../utils/floodLevel';
 import {
   MODERATION_OPEN_REPORT,
@@ -36,14 +39,6 @@ import {
 } from '../utils/moderationEvents';
 
 const FLOOD_LEVELS = [FLOOD_FILTER_ALL, ...FLOOD_LEVEL_API_VALUES];
-
-/** Màu card theo mức độ ngập */
-const LEVEL_CARD_STYLES = {
-  Nặng: 'bg-red-50 border-red-200 text-red-900',
-  'Trung bình': 'bg-amber-50 border-amber-200 text-amber-900',
-  Nhẹ: 'bg-sky-50 border-sky-200 text-sky-900',
-};
-const levelDefaultStyle = 'bg-dashboard-surface border-dashboard-border text-zinc-200';
 
 /** Chuẩn hóa status từ BE (có thể là status, moderation_status, is_approved, v.v.) */
 function getReportStatus(report) {
@@ -181,7 +176,7 @@ function ReportMiniCard({
   draggingId,
 }) {
   const { t } = useTranslation();
-  const levelStyle = LEVEL_CARD_STYLES[report.flood_level] || levelDefaultStyle;
+  const levelStyle = getFloodLevelCardStyle(report.flood_level);
   const isDragging = draggable && draggingId === report.id;
   const card = (
     <div
@@ -233,7 +228,6 @@ function ReportDetailModal({
   getReportPhotoUrls,
   getReportContent,
   getReporterReliabilityTier,
-  levelColors,
   setPhotoModalUrl,
   setRejectModal,
   handleApprove,
@@ -250,7 +244,6 @@ function ReportDetailModal({
       getReportPhotoUrls={getReportPhotoUrls}
       getReportContent={getReportContent}
       getReporterReliabilityTier={getReporterReliabilityTier}
-      levelColors={levelColors}
       setPhotoModalUrl={setPhotoModalUrl}
       setRejectModal={setRejectModal}
       handleApprove={handleApprove}
@@ -268,7 +261,6 @@ function ReportDetailModalContent({
   getReportPhotoUrls,
   getReportContent,
   getReporterReliabilityTier,
-  levelColors,
   setPhotoModalUrl,
   setRejectModal,
   handleApprove,
@@ -297,7 +289,7 @@ function ReportDetailModalContent({
         </div>
         <div className="p-4 overflow-y-auto flex-1 space-y-4 text-zinc-300">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-sm font-semibold ${levelColors[report.flood_level] || 'text-zinc-200'}`}>{formatFloodLevel(report.flood_level, t)}</span>
+            <span className={`text-sm font-semibold ${getFloodLevelTextColor(report.flood_level)}`}>{formatFloodLevel(report.flood_level, t)}</span>
             <ConfidenceBadge report={report} variant="onLight" />
           </div>
           <ReportStatusBadges report={report} className="mt-2" />
@@ -442,11 +434,13 @@ export default function ModerationPage() {
     ]);
     if (allRes.success && allRes.data) setReports(allRes.data);
     else setReports([]);
-    if (pendingRes.success && Array.isArray(pendingRes.data)) {
-      setPendingQueue(pendingRes.data.filter((r) => isQueuePendingReport(r)));
+    let queue = pendingRes.success && Array.isArray(pendingRes.data) ? pendingRes.data : [];
+    if (queue.length === 0 && allRes.success && Array.isArray(allRes.data)) {
+      queue = allRes.data.filter((r) => isQueuePendingReport(r));
     } else {
-      setPendingQueue([]);
+      queue = queue.filter((r) => isQueuePendingReport(r));
     }
+    setPendingQueue(queue);
     setLoading(false);
     dispatchReportsSummaryRefresh();
   }, []);
@@ -595,12 +589,12 @@ export default function ModerationPage() {
     }
   };
 
-  const levelColors = { Nặng: 'text-red-600', 'Trung bình': 'text-amber-600', Nhẹ: 'text-sky-600' };
-
   const applyFilterAndSort = useCallback(
     (list) => {
       let out = [...list];
-      if (filterLevel !== FLOOD_FILTER_ALL) out = out.filter((r) => (r.flood_level || '') === filterLevel);
+      if (filterLevel !== FLOOD_FILTER_ALL) {
+        out = out.filter((r) => floodLevelsMatch(r.flood_level, filterLevel));
+      }
       if (searchText.trim()) {
         out = out.filter(
           (r) => {
@@ -830,7 +824,6 @@ export default function ModerationPage() {
           getReportPhotoUrls={getReportPhotoUrls}
           getReportContent={getReportContent}
           getReporterReliabilityTier={getReporterReliabilityTier}
-          levelColors={levelColors}
           setPhotoModalUrl={setPhotoModalUrl}
           setRejectModal={setRejectModal}
           handleApprove={handleApprove}

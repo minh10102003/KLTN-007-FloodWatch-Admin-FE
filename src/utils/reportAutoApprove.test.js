@@ -39,6 +39,16 @@ describe('queue and manual pending', () => {
     ).toBe(false);
   });
 
+  it('includes manual pending when display key is not exactly pending', () => {
+    expect(
+      isQueuePendingReport({
+        moderation_status: 'pending',
+        auto_approved: false,
+        display_moderation: { key: 'pending_manual_review', label: 'Chờ duyệt thủ công' },
+      })
+    ).toBe(true);
+  });
+
   it('includes manual pending in queue', () => {
     expect(
       isQueuePendingReport({

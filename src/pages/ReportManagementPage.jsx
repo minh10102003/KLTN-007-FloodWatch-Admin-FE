@@ -31,15 +31,7 @@ import {
   MODERATION_REFRESH,
 } from '../utils/moderationEvents';
 import { dispatchReportsSummaryRefresh } from '../utils/reportFilterEvents';
-
-function formatFloodLevel(raw, t) {
-  if (raw == null || raw === '') return '—';
-  const s = String(raw).trim();
-  const lower = s.toLowerCase();
-  if (lower === 'nhẹ' || lower === 'light' || lower === 'low') return t('reports.severityLight');
-  if (lower === 'nặng' || lower === 'heavy' || lower === 'high') return t('reports.severityHeavy');
-  return s;
-}
+import { buildFloodLevelChartData, formatFloodLevel } from '../utils/floodLevel';
 
 /** Độ rộng cột theo % — phân bổ đều, tránh cột Nội dung chiếm hết không gian */
 const REPORT_TABLE_COL_WIDTHS = [5, 10, 10, 8, 8, 14, 18, 10, 15];
@@ -193,6 +185,8 @@ export default function ReportManagementPage() {
   const [focusedReportId, setFocusedReportId] = useState(null);
   const [detailReport, setDetailReport] = useState(null);
   const [chartData, setChartData] = useState([]);
+  const [floodLevelChartData, setFloodLevelChartData] = useState([]);
+  const [statsApiPayload, setStatsApiPayload] = useState(null);
   const [chartGroupBy, setChartGroupBy] = useState('day');
   const [chartLoading, setChartLoading] = useState(false);
   const [chartError, setChartError] = useState(null);
@@ -217,12 +211,13 @@ export default function ReportManagementPage() {
       });
       setStatsSummary({ pending, approved, rejected, total: list.length });
       setReportList(list);
+      setFloodLevelChartData(buildFloodLevelChartData(list, statsApiPayload, t));
       dispatchReportsSummaryRefresh();
     } else {
       setStatsSummary({ pending: 0, approved: 0, rejected: 0, total: 0 });
       setReportList([]);
     }
-  }, []);
+  }, [statsApiPayload, t]);
 
   const scrollToReportRow = useCallback((id) => {
     window.requestAnimationFrame(() => {
@@ -274,7 +269,9 @@ export default function ReportManagementPage() {
       to: to.toISOString(),
     });
     setChartLoading(false);
-    if (res.success && res.data?.series && Array.isArray(res.data.series)) {
+    if (res.success && res.data) {
+      setStatsApiPayload(res.data);
+      if (res.data?.series && Array.isArray(res.data.series)) {
       const arr = res.data.series.map((s) => ({
         period: s.period,
         count: s.count ?? 0,
@@ -285,7 +282,11 @@ export default function ReportManagementPage() {
       }));
       setChartData(arr);
       setChartError(null);
+      } else {
+        setChartData([]);
+      }
     } else {
+      setStatsApiPayload(null);
       setChartData([]);
       setChartError(
         res.status === 403
@@ -294,6 +295,10 @@ export default function ReportManagementPage() {
       );
     }
   }, [chartGroupBy, chartLocale, t]);
+
+  useEffect(() => {
+    setFloodLevelChartData(buildFloodLevelChartData(reportList, statsApiPayload, t));
+  }, [reportList, statsApiPayload, t]);
 
   useEffect(() => {
     loadStatsSummary();
@@ -433,6 +438,44 @@ export default function ReportManagementPage() {
         </div>
 
         <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-6">
+          <div className="mb-4">
+            <p className="text-sm text-zinc-400">{t('reports.floodChartCaption')}</p>
+            <h2 className="text-lg font-semibold text-zinc-100">{t('reports.floodChartTitle')}</h2>
+          </div>
+          {statsSummaryLoading ? (
+            <div className="flex h-56 items-center justify-center text-zinc-400">{t('reports.loading')}</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <ComposedChart data={floodLevelChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#52525b" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 11, fill: '#a1a1aa' }}
+                  axisLine={{ stroke: '#52525b' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 12, fill: '#a1a1aa' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: 8,
+                    border: '1px solid #404040',
+                    backgroundColor: '#27272a',
+                    color: '#f4f4f5',
+                  }}
+                  formatter={(value) => [value, t('reports.tooltipReportCount')]}
+                />
+                <Bar dataKey="count" fill="#06b6d4" name={t('reports.tooltipReportCount')} radius={[4, 4, 0, 0]} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm text-zinc-400">{t('reports.chartCaption')}</p>
@@ -517,7 +560,7 @@ export default function ReportManagementPage() {
                   <TableTh>{t('reports.colId')}</TableTh>
                   <TableTh>{t('reports.colModeration')}</TableTh>
                   <TableTh>{t('reports.colValidation')}</TableTh>
-                  <TableTh>{t('reports.colSeverity')}</TableTh>
+                  <TableTh>{t('reports.colFloodLevel')}</TableTh>
                   <TableTh>{t('reports.colConfidence')}</TableTh>
                   <TableTh>{t('reports.colLocation')}</TableTh>
                   <TableTh>{t('reports.colContent')}</TableTh>

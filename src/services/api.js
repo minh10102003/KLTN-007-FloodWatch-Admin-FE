@@ -389,8 +389,21 @@ export const getReliabilityRanking = async (limit = 100) => {
 };
 
 export const fetchPendingReports = async (limit = 50) => {
-  const { data } = await apiClient.get(`${API_ENDPOINTS.REPORTS_PENDING}?limit=${limit}`);
-  return data?.success ? { success: true, data: data.data || [] } : { success: false, data: [] };
+  const paths = [
+    API_ENDPOINTS.REPORTS_PENDING,
+    '/api/reports/pending',
+  ];
+  for (const path of paths) {
+    try {
+      const { data } = await apiClient.get(`${path}?limit=${limit}`);
+      if (data?.success && Array.isArray(data.data)) {
+        return { success: true, data: data.data };
+      }
+    } catch {
+      /* thử path kế tiếp */
+    }
+  }
+  return { success: false, data: [] };
 };
 
 /**
@@ -470,7 +483,7 @@ export const moderateReport = async (reportId, action, rejectionReason = null) =
     ? { action, rejection_reason: rejectionReason }
     : { action };
   try {
-    const { data } = await apiClient.put(url, payload);
+    const { data } = await apiClient.patch(url, payload);
     if (data?.success) return { success: true, message: data.message };
     return { success: false, error: data?.error || data?.message || 'Thao tác thất bại' };
   } catch (err) {
