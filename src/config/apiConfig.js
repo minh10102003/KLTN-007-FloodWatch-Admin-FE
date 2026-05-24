@@ -1,6 +1,6 @@
 const rawBaseUrl = import.meta.env.DEV
   ? ''
-  : import.meta.env.VITE_API_BASE_URL || 'https://kltn-007-floodwatch-be-production.up.railway.app';
+  : import.meta.env.VITE_API_BASE_URL || 'https://api.floodsight.id.vn';
 const rawFallbackBaseUrl =
   import.meta.env.VITE_API_FALLBACK_BASE_URL ||
   'https://kltn-007-floodwatch-be-production.up.railway.app';
@@ -43,6 +43,10 @@ export const API_ENDPOINTS = {
   REPORTS_ALL: '/api/reports/all',
   CROWD_REPORTS: '/api/crowd-reports',
   REPORT_MODERATE: '/api/reports/:reportId/moderate',
+  /** Tổng quan auto-approve hôm nay. GET /api/reports/summary */
+  REPORTS_SUMMARY: '/api/reports/summary',
+  /** Bỏ qua hàng đợi auto-approve. POST /api/reports/:reportId/skip-auto-approve */
+  REPORT_SKIP_AUTO_APPROVE: '/api/reports/:reportId/skip-auto-approve',
   REPORTS_RELIABILITY_RANKING: '/api/reports/reliability-ranking',
   /** Thống kê báo cáo theo giờ/ngày (Moderator/Admin) */
   STATS_REPORTS: '/api/stats/reports',

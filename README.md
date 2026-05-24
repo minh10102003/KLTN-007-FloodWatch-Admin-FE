@@ -81,6 +81,24 @@ npm run preview   # xem bản build (tùy chọn)
 
 Thư mục `dist/` dùng để deploy (static hosting, Nginx, Vercel, v.v.).
 
+### Deploy Vercel (Socket + API)
+
+1. **Environment Variables** (Project → Settings → Environment Variables → **Production**), hoặc dùng sẵn file `.env.production` trong repo:
+
+| Biến | Giá trị |
+|------|---------|
+| `VITE_API_BASE_URL` | `https://api.floodsight.id.vn` |
+| `VITE_SOCKET_ENABLED` | `true` |
+| `VITE_SOCKET_URL` | `https://api.floodsight.id.vn` |
+| `VITE_SOCKET_NAMESPACE` | `/admin` |
+| `VITE_SOCKET_TRANSPORTS` | `polling` |
+
+2. **Redeploy** sau khi thêm/sửa biến (Vite nhúng env lúc build, không đổi runtime).
+
+3. **Backend** (`server.js` / Socket.IO): `ADMIN_ORIGINS` phải gồm URL admin Vercel, ví dụ `https://your-app.vercel.app`. Thiếu origin → CORS / 401 khi handshake.
+
+4. Lỗi `WebSocket is closed before the connection is established` trên Railway: dùng `VITE_SOCKET_TRANSPORTS=polling` (mặc định production).
+
 ---
 
 ## Cấu trúc dự án (tóm tắt)

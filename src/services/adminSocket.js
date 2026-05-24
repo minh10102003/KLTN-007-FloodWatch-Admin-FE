@@ -50,6 +50,16 @@ function getSocketNamespace() {
   return '/admin';
 }
 
+/** Production (Railway/proxy): mặc định chỉ polling — tránh lỗi upgrade WebSocket. */
+function getSocketTransports() {
+  const raw = import.meta.env.VITE_SOCKET_TRANSPORTS?.trim().toLowerCase();
+  if (raw === 'polling') return ['polling'];
+  if (raw === 'websocket') return ['websocket'];
+  if (raw === 'both' || raw === 'polling,websocket') return ['polling', 'websocket'];
+  if (import.meta.env.PROD) return ['polling'];
+  return ['polling', 'websocket'];
+}
+
 let socket = null;
 
 function attachListeners(sock, onNotification) {
@@ -60,11 +70,12 @@ function attachListeners(sock, onNotification) {
 }
 
 function createSocket(url, token, onNotification) {
+  const transports = getSocketTransports();
   const sock = io(url, {
     path: import.meta.env.VITE_SOCKET_PATH || '/socket.io',
     auth: { token },
-    transports: ['polling', 'websocket'],
-    upgrade: true,
+    transports,
+    upgrade: transports.includes('websocket'),
     reconnection: true,
     reconnectionAttempts: 5,
     reconnectionDelay: 1500,

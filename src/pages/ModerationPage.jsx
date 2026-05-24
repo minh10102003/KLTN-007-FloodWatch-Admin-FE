@@ -2,7 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
-import { getReportsAll, moderateReport } from '../services/api';
+import { getReportsAll, moderateReport, skipReportAutoApprove } from '../services/api';
+import AutoApproveSummary from '../components/admin/AutoApproveSummary';
+import ReportAutoApproveBadge from '../components/admin/ReportAutoApproveBadge';
+import ReportAutoApproveDetailSection from '../components/admin/ReportAutoApproveDetailSection';
+import { isManualPendingReport } from '../utils/reportAutoApprove';
+import { REPORTS_FILTER_MANUAL_PENDING } from '../utils/reportFilterEvents';
 import { getReporterReliabilityTier } from '../utils/reliabilityHelpers';
 import { reverseGeocode, getDisplayAddress } from '../utils/geocode';
 import { FaCheck, FaXmark, FaArrowsRotate, FaFilter, FaStar, FaGripVertical } from 'react-icons/fa6';
@@ -197,6 +202,7 @@ function ReportMiniCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-zinc-500">#{report.id}</p>
+          <ReportAutoApproveBadge report={report} className="mt-1" />
           <p className="text-sm font-medium line-clamp-2 mt-0.5" title={address}>
             {address}
           </p>
@@ -245,6 +251,8 @@ function ReportDetailModal({
   setRejectModal,
   handleApprove,
   processing,
+  onSkipAutoApprove,
+  skipProcessing,
 }) {
   if (!report) return null;
   return (
@@ -260,6 +268,8 @@ function ReportDetailModal({
       setRejectModal={setRejectModal}
       handleApprove={handleApprove}
       processing={processing}
+      onSkipAutoApprove={onSkipAutoApprove}
+      skipProcessing={skipProcessing}
     />
   );
 }
@@ -276,6 +286,8 @@ function ReportDetailModalContent({
   setRejectModal,
   handleApprove,
   processing,
+  onSkipAutoApprove,
+  skipProcessing,
 }) {
   const { t, i18n } = useTranslation();
   const dateLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
@@ -367,6 +379,11 @@ function ReportDetailModalContent({
               </button>
             </div>
           )}
+          <ReportAutoApproveDetailSection
+            report={report}
+            onSkipAutoApprove={onSkipAutoApprove}
+            skipProcessing={skipProcessing}
+          />
         </div>
       </div>
     </div>
@@ -433,6 +450,8 @@ export default function ModerationPage() {
   const [draggingId, setDraggingId] = useState(null);
   const [detailReport, setDetailReport] = useState(null);
   const [geocodedSearchMap, setGeocodedSearchMap] = useState({});
+  const [manualPendingOnly, setManualPendingOnly] = useState(false);
+  const [skipProcessing, setSkipProcessing] = useState(null);
 
   const loadReports = useCallback(async () => {
     setLoading(true);
@@ -470,6 +489,28 @@ export default function ModerationPage() {
   useEffect(() => {
     loadReports();
   }, [loadReports]);
+
+  useEffect(() => {
+    const onFilterManual = () => setManualPendingOnly(true);
+    window.addEventListener(REPORTS_FILTER_MANUAL_PENDING, onFilterManual);
+    return () => window.removeEventListener(REPORTS_FILTER_MANUAL_PENDING, onFilterManual);
+  }, []);
+
+  const handleSkipAutoApprove = useCallback(
+    async (reportId) => {
+      setSkipProcessing(reportId);
+      const result = await skipReportAutoApprove(reportId);
+      setSkipProcessing(null);
+      if (result.success) {
+        toast(result.message || t('autoApprove.skipSuccess'), 'success');
+        loadReports();
+        setDetailReport((prev) => (prev?.id === reportId ? null : prev));
+      } else {
+        toast(result.error || t('autoApprove.skipFailed'), 'error');
+      }
+    },
+    [loadReports, toast, t]
+  );
 
   useEffect(() => {
     const onRefresh = () => {
@@ -596,6 +637,11 @@ export default function ModerationPage() {
     return applyFilterAndSort(list);
   }, [reports, applyFilterAndSort]);
 
+  const displayPendingReports = useMemo(() => {
+    if (!manualPendingOnly) return pendingReports;
+    return pendingReports.filter((r) => isManualPendingReport(r, 'pending'));
+  }, [pendingReports, manualPendingOnly]);
+
   const processedReports = useMemo(() => {
     const list = reports.filter((r) => {
       const s = getReportStatus(r);
@@ -641,6 +687,21 @@ export default function ModerationPage() {
           <FaArrowsRotate /> {t('moderation.refresh')}
         </button>
       </div>
+
+      <AutoApproveSummary onFilterManualPending={() => setManualPendingOnly(true)} />
+
+      {manualPendingOnly && (
+        <p className="mb-4 text-sm text-amber-400/90">
+          {t('autoApprove.filterManualActive')}
+          <button
+            type="button"
+            className="ml-2 text-violet-400 hover:text-violet-300 underline"
+            onClick={() => setManualPendingOnly(false)}
+          >
+            {t('moderation.clearFilters')}
+          </button>
+        </p>
+      )}
 
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-dashboard-border bg-dashboard-card p-4 shadow-sm">
         <span className="flex items-center gap-2 text-sm font-medium text-zinc-400">
@@ -742,17 +803,17 @@ export default function ModerationPage() {
           <div className="p-4 border-b border-dashboard-border bg-dashboard-surface">
             <h2 className="text-lg font-semibold text-zinc-100">{t('moderation.pendingTitle')}</h2>
             <p className="text-sm text-zinc-400 mt-0.5">{t('moderation.pendingHint')}</p>
-            {pendingReports.length > 0 && (
-              <p className="text-xs text-zinc-500 mt-2">{t('moderation.pendingCount', { count: pendingReports.length })}</p>
+            {displayPendingReports.length > 0 && (
+              <p className="text-xs text-zinc-500 mt-2">{t('moderation.pendingCount', { count: displayPendingReports.length })}</p>
             )}
           </div>
           <div className="flex-1 overflow-auto p-3 space-y-3">
             {loading ? (
               <p className="text-zinc-400 text-sm">{t('common.loading')}</p>
-            ) : pendingReports.length === 0 ? (
+            ) : displayPendingReports.length === 0 ? (
               <p className="text-zinc-400 text-sm text-center py-6">{t('moderation.pendingEmpty')}</p>
             ) : (
-              pendingReports.map((report) => (
+              displayPendingReports.map((report) => (
                 <PendingMiniCard
                   key={report.id}
                   report={report}
@@ -782,6 +843,8 @@ export default function ModerationPage() {
           setRejectModal={setRejectModal}
           handleApprove={handleApprove}
           processing={processing}
+          onSkipAutoApprove={handleSkipAutoApprove}
+          skipProcessing={skipProcessing}
         />
       )}
 

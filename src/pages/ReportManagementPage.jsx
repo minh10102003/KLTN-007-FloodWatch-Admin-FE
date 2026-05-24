@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -12,7 +12,13 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { ChevronDown } from 'lucide-react';
-import { getReportsAll, getReportStats } from '../services/api';
+import { getReportsAll, getReportStats, skipReportAutoApprove } from '../services/api';
+import AutoApproveSummary from '../components/admin/AutoApproveSummary';
+import ReportAutoApproveBadge from '../components/admin/ReportAutoApproveBadge';
+import ReportAutoApproveDetailSection from '../components/admin/ReportAutoApproveDetailSection';
+import { isManualPendingReport } from '../utils/reportAutoApprove';
+import { REPORTS_FILTER_MANUAL_PENDING } from '../utils/reportFilterEvents';
+import { useToast } from '../components/ui/Toast';
 import { Table, TableHead, TableBody, TableRow, TableTh, TableTd } from '../components/ui/Table';
 import { FaArrowsRotate, FaXmark } from 'react-icons/fa6';
 import { Menu, MenuTrigger, MenuPanel, MenuItem } from '../components/ui/Menu';
@@ -66,7 +72,7 @@ function getReportContent(report) {
   return text.replace(/<[^>]*>/g, '').trim() || '';
 }
 
-function ReportDetailView({ report, onClose, onPhotoClick, t, i18n }) {
+function ReportDetailView({ report, onClose, onPhotoClick, onSkipAutoApprove, skipProcessing, t, i18n }) {
   const dateLocale = i18n.language?.startsWith('en') ? 'en-GB' : 'vi-VN';
   const status = getReportStatus(report);
   const statusLabel =
@@ -176,6 +182,11 @@ function ReportDetailView({ report, onClose, onPhotoClick, t, i18n }) {
           <p className="text-xs text-zinc-500">
             {report.created_at ? new Date(report.created_at).toLocaleString(dateLocale) : ''}
           </p>
+          <ReportAutoApproveDetailSection
+            report={report}
+            onSkipAutoApprove={onSkipAutoApprove}
+            skipProcessing={skipProcessing}
+          />
         </div>
       </div>
     </div>
@@ -184,6 +195,7 @@ function ReportDetailView({ report, onClose, onPhotoClick, t, i18n }) {
 
 export default function ReportManagementPage() {
   const { t, i18n } = useTranslation();
+  const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const pendingOpenReportId = useRef(null);
   const rowRefs = useRef({});
@@ -198,6 +210,8 @@ export default function ReportManagementPage() {
   const [chartLoading, setChartLoading] = useState(false);
   const [chartError, setChartError] = useState(null);
   const [photoModalUrl, setPhotoModalUrl] = useState(null);
+  const [manualPendingOnly, setManualPendingOnly] = useState(false);
+  const [skipProcessing, setSkipProcessing] = useState(null);
 
   const loadStatsSummary = useCallback(async () => {
     setStatsSummaryLoading(true);
@@ -298,6 +312,28 @@ export default function ReportManagementPage() {
   }, [loadStatsSummary]);
 
   useEffect(() => {
+    const onFilterManual = () => setManualPendingOnly(true);
+    window.addEventListener(REPORTS_FILTER_MANUAL_PENDING, onFilterManual);
+    return () => window.removeEventListener(REPORTS_FILTER_MANUAL_PENDING, onFilterManual);
+  }, []);
+
+  const handleSkipAutoApprove = useCallback(
+    async (reportId) => {
+      setSkipProcessing(reportId);
+      const result = await skipReportAutoApprove(reportId);
+      setSkipProcessing(null);
+      if (result.success) {
+        toast(result.message || t('autoApprove.skipSuccess'), 'success');
+        loadStatsSummary();
+        setDetailReport((prev) => (prev?.id === reportId ? null : prev));
+      } else {
+        toast(result.error || t('autoApprove.skipFailed'), 'error');
+      }
+    },
+    [loadStatsSummary, toast, t]
+  );
+
+  useEffect(() => {
     loadChartData();
   }, [loadChartData]);
 
@@ -337,11 +373,17 @@ export default function ReportManagementPage() {
     loadChartData();
   };
 
-  const sortedReports = [...reportList].sort((a, b) => {
-    const ta = new Date(a.created_at || 0).getTime();
-    const tb = new Date(b.created_at || 0).getTime();
-    return tb - ta;
-  });
+  const sortedReports = useMemo(() => {
+    let list = [...reportList];
+    if (manualPendingOnly) {
+      list = list.filter((r) => isManualPendingReport(r, getReportStatus(r)));
+    }
+    return list.sort((a, b) => {
+      const ta = new Date(a.created_at || 0).getTime();
+      const tb = new Date(b.created_at || 0).getTime();
+      return tb - ta;
+    });
+  }, [reportList, manualPendingOnly]);
 
   return (
     <div>
@@ -356,6 +398,21 @@ export default function ReportManagementPage() {
           <FaArrowsRotate /> {t('reports.refresh')}
         </button>
       </div>
+
+      <AutoApproveSummary onFilterManualPending={() => setManualPendingOnly(true)} />
+
+      {manualPendingOnly && (
+        <p className="mb-4 text-sm text-amber-400/90">
+          {t('autoApprove.filterManualActive')}
+          <button
+            type="button"
+            className="ml-2 text-violet-400 hover:text-violet-300 underline"
+            onClick={() => setManualPendingOnly(false)}
+          >
+            {t('moderation.clearFilters')}
+          </button>
+        </p>
+      )}
 
       <div className="space-y-6">
         <div className="rounded-xl border border-dashboard-border bg-dashboard-card p-6">
@@ -517,7 +574,10 @@ export default function ReportManagementPage() {
                         }, { replace: true });
                       }}
                     >
-                      <TableTd className="font-medium text-zinc-200">#{report.id}</TableTd>
+                      <TableTd className="font-medium text-zinc-200">
+                        <span className="block">#{report.id}</span>
+                        <ReportAutoApproveBadge report={report} className="mt-1" />
+                      </TableTd>
                       <TableTd>
                         <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}>
                           {statusLabel}
@@ -582,6 +642,8 @@ export default function ReportManagementPage() {
           report={detailReport}
           onClose={closeDetailReport}
           onPhotoClick={setPhotoModalUrl}
+          onSkipAutoApprove={handleSkipAutoApprove}
+          skipProcessing={skipProcessing}
           t={t}
           i18n={i18n}
         />

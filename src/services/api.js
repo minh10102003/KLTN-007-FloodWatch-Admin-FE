@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { API_CONFIG, API_ENDPOINTS } from '../config/apiConfig';
 import { clearAuthStorage, persistAuthTokens } from '../utils/auth';
+import { normalizeReportsSummary } from '../utils/reportAutoApprove';
 
 const apiClient = axios.create({
   baseURL: API_CONFIG.BASE_URL,
@@ -44,6 +45,7 @@ const refreshAccessToken = async () => {
     );
     if (data?.success && data.data) {
       persistAuthTokens(data.data);
+      window.dispatchEvent(new CustomEvent('admin-auth-changed'));
       return data.data.access_token || data.data.token || null;
     }
     return null;
@@ -421,6 +423,45 @@ export const fetchCrowdReports = async (limit = 200, offset = 0, status = null) 
   if (status) params.set('status', status);
   const { data } = await apiClient.get(`${API_ENDPOINTS.CROWD_REPORTS}?${params}`);
   return data?.success ? { success: true, data: data.data || [] } : { success: false, data: [] };
+};
+
+/**
+ * GET /api/reports/summary — thống kê auto-approve (Admin/Moderator).
+ */
+export const getReportsSummary = async () => {
+  try {
+    const { data } = await apiClient.get(API_ENDPOINTS.REPORTS_SUMMARY);
+    if (data?.success) {
+      return { success: true, summary: normalizeReportsSummary(data.data ?? data) };
+    }
+    return {
+      success: false,
+      summary: normalizeReportsSummary(null),
+      error: data?.error || data?.message,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      summary: normalizeReportsSummary(null),
+      error: err.response?.data?.error || err.message,
+    };
+  }
+};
+
+/**
+ * POST /api/reports/:reportId/skip-auto-approve
+ */
+export const skipReportAutoApprove = async (reportId) => {
+  try {
+    const url = API_ENDPOINTS.REPORT_SKIP_AUTO_APPROVE.replace(':reportId', String(reportId));
+    const { data } = await apiClient.post(url, {});
+    if (data?.success) {
+      return { success: true, message: data.message, data: data.data };
+    }
+    return { success: false, error: data?.error || data?.message || 'Thao tác thất bại' };
+  } catch (err) {
+    return { success: false, error: err.response?.data?.error || err.message };
+  }
 };
 
 export const moderateReport = async (reportId, action, rejectionReason = null) => {
