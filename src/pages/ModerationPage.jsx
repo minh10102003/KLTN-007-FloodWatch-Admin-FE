@@ -10,6 +10,7 @@ import {
   canManualModerate,
   isManualPendingReport,
   isQueuePendingReport,
+  mergeManualPendingQueues,
 } from '../utils/reportAutoApprove';
 import {
   dispatchReportsSummaryRefresh,
@@ -428,19 +429,20 @@ export default function ModerationPage() {
 
   const loadReports = useCallback(async () => {
     setLoading(true);
-    const [allRes, pendingRes] = await Promise.all([
-      getReportsAll({ limit: 500 }),
+    const [allRes, pendingRes, pendingStatusRes] = await Promise.all([
+      getReportsAll({ limit: 2000 }),
       fetchPendingReports(500),
+      getReportsAll({ limit: 500, moderation_status: 'pending' }),
     ]);
     if (allRes.success && allRes.data) setReports(allRes.data);
     else setReports([]);
-    let queue = pendingRes.success && Array.isArray(pendingRes.data) ? pendingRes.data : [];
-    if (queue.length === 0 && allRes.success && Array.isArray(allRes.data)) {
-      queue = allRes.data.filter((r) => isQueuePendingReport(r));
-    } else {
-      queue = queue.filter((r) => isQueuePendingReport(r));
-    }
-    setPendingQueue(queue);
+    setPendingQueue(
+      mergeManualPendingQueues([
+        { data: pendingRes.success ? pendingRes.data : [], trustPendingApi: true },
+        { data: pendingStatusRes.success ? pendingStatusRes.data : [], trustPendingApi: false },
+        { data: allRes.success ? allRes.data : [], trustPendingApi: false },
+      ])
+    );
     setLoading(false);
     dispatchReportsSummaryRefresh();
   }, []);

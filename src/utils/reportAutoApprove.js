@@ -2,7 +2,8 @@ import { AUTO_APPROVE_MIN_NEIGHBORS } from './checkAutoApprove';
 
 export function isReportAutoApproved(report) {
   if (!report) return false;
-  return report.auto_approved === true || report.autoApproved === true;
+  const v = report.auto_approved ?? report.autoApproved;
+  return v === true || v === 1 || v === '1' || v === 'true';
 }
 
 export function isReportSensorVerified(report) {
@@ -24,27 +25,67 @@ export function getReportNeighborCount(report) {
 /** Key kiểm duyệt đã kết thúc — không còn trong hàng chờ. */
 const TERMINAL_MODERATION_KEYS = new Set(['approved', 'rejected', 'auto_approved']);
 
-/**
- * Báo cáo chờ duyệt thủ công (khớp pending_manual_review trên summary).
- * Chỉ loại khi đã auto_approved hoặc display_moderation.key là trạng thái cuối.
- * Không yêu cầu key === 'pending' (BE có thể gửi pending_manual_review, v.v.).
- */
-export function isQueuePendingReport(report) {
-  if (!report || isReportAutoApproved(report)) return false;
-  const key = report.display_moderation?.key;
-  if (key && TERMINAL_MODERATION_KEYS.has(key)) return false;
-  const mod = report.moderation_status ?? report.status;
-  return mod === 'pending';
+export function normalizeModerationStatus(report) {
+  const raw = report?.moderation_status ?? report?.status ?? '';
+  return String(raw).trim().toLowerCase();
 }
 
-/** Lọc "chờ duyệt thủ công" — cùng điều kiện với hàng đợi bên phải. */
+/**
+ * @param {object} report
+ * @param {{ trustPendingApi?: boolean }} [opts] — true = tin GET .../pending (BE đã lọc)
+ */
+export function isPendingQueueItem(report, opts = {}) {
+  if (!report || isReportAutoApproved(report)) return false;
+
+  const key = String(report.display_moderation?.key ?? '').toLowerCase();
+  if (key && TERMINAL_MODERATION_KEYS.has(key)) return false;
+
+  if (opts.trustPendingApi) return true;
+
+  if (report.requires_manual_review === true || report.requiresManualReview === true) {
+    return true;
+  }
+
+  const mod = normalizeModerationStatus(report);
+  if (mod === 'pending') return true;
+  if (key.includes('pending')) return true;
+
+  if (report.is_approved === false && mod !== 'approved' && mod !== 'rejected') {
+    return true;
+  }
+
+  return false;
+}
+
+/** Báo cáo chờ duyệt thủ công (khớp pending_manual_review trên summary). */
+export function isQueuePendingReport(report) {
+  return isPendingQueueItem(report, { trustPendingApi: false });
+}
+
 export function isManualPendingReport(report) {
   return isQueuePendingReport(report);
 }
 
-/** Có thể kéo duyệt / từ chối thủ công. */
 export function canManualModerate(report) {
   return isQueuePendingReport(report);
+}
+
+/**
+ * Gộp hàng chờ từ pending API + reports/all?moderation_status=pending + toàn bộ list.
+ * @param {Array<{ data?: object[], trustPendingApi?: boolean }>} sources
+ */
+export function mergeManualPendingQueues(sources) {
+  const map = new Map();
+  for (const src of sources) {
+    const list = Array.isArray(src?.data) ? src.data : [];
+    const trust = src.trustPendingApi === true;
+    list.forEach((r) => {
+      if (r?.id == null) return;
+      if (!isPendingQueueItem(r, { trustPendingApi: trust })) return;
+      map.set(Number(r.id), r);
+    });
+  }
+  return [...map.values()];
 }
 
 const EMPTY_SUMMARY = {
@@ -71,3 +112,5 @@ export function normalizeReportsSummary(payload) {
       0,
   };
 }
+
+export { AUTO_APPROVE_MIN_NEIGHBORS };
