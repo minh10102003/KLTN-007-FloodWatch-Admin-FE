@@ -10,7 +10,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('Report status badges', () => {
-  it('shows moderation label from display_moderation', () => {
+  it('shows moderation label via i18n key', () => {
     render(
       <ModerationStatusBadge
         report={{
@@ -18,10 +18,10 @@ describe('Report status badges', () => {
         }}
       />
     );
-    expect(screen.getByText('Tự động duyệt')).toBeInTheDocument();
+    expect(screen.getByText('reports.moderationAutoApproved')).toBeInTheDocument();
   });
 
-  it('shows validation label from display_validation', () => {
+  it('shows validation label via i18n key', () => {
     render(
       <ValidationStatusBadge
         report={{
@@ -29,10 +29,10 @@ describe('Report status badges', () => {
         }}
       />
     );
-    expect(screen.getByText('Xác minh chéo')).toBeInTheDocument();
+    expect(screen.getByText('reports.validationCrossVerified')).toBeInTheDocument();
   });
 
-  it('shows pending manual moderation label', () => {
+  it('shows pending moderation via i18n key', () => {
     render(
       <ModerationStatusBadge
         report={{
@@ -42,6 +42,28 @@ describe('Report status badges', () => {
         }}
       />
     );
-    expect(screen.getByText('Chờ duyệt')).toBeInTheDocument();
+    expect(screen.getByText('reports.statusPending')).toBeInTheDocument();
+  });
+
+  it('translates raw English moderation key approved', () => {
+    render(
+      <ModerationStatusBadge
+        report={{
+          display_moderation: { key: 'approved', label: 'approved' },
+        }}
+      />
+    );
+    expect(screen.getByText('reports.statusApproved')).toBeInTheDocument();
+  });
+
+  it('translates raw English validation key cross_verified', () => {
+    render(
+      <ValidationStatusBadge
+        report={{
+          display_validation: { key: 'cross_verified', label: 'cross_verified' },
+        }}
+      />
+    );
+    expect(screen.getByText('reports.validationCrossVerified')).toBeInTheDocument();
   });
 });

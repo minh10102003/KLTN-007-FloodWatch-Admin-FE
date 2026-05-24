@@ -5,6 +5,8 @@ import {
   getDisplayValidation,
   getModerationBadgeClass,
   getValidationBadgeClass,
+  resolveModerationLabel,
+  resolveValidationLabel,
 } from '../../utils/reportDisplayStatus';
 import { isReportAutoApproved } from '../../utils/reportAutoApprove';
 
@@ -21,10 +23,11 @@ function BadgePill({ label, className, title }) {
 
 /** Kiểm duyệt — dùng display_moderation.label từ BE. */
 export function ModerationStatusBadge({ report, className = '' }) {
+  const { t } = useTranslation();
   const dm = getDisplayModeration(report);
   return (
     <BadgePill
-      label={dm.label}
+      label={resolveModerationLabel(dm, t)}
       className={`${getModerationBadgeClass(report)} ${className}`}
       title={dm.hint || undefined}
     />
@@ -33,10 +36,11 @@ export function ModerationStatusBadge({ report, className = '' }) {
 
 /** Xác minh chéo — tách khỏi sensor summary / tin cậy. */
 export function ValidationStatusBadge({ report, className = '' }) {
+  const { t } = useTranslation();
   const dv = getDisplayValidation(report);
   return (
     <BadgePill
-      label={dv.label}
+      label={resolveValidationLabel(dv, t)}
       className={`${getValidationBadgeClass(report)} ${className}`}
     />
   );

@@ -51,3 +51,47 @@ export function getValidationBadgeClass(report) {
   const key = getDisplayValidation(report).key;
   return VALIDATION_BADGE_CLASS[key] || 'bg-zinc-600/90 text-zinc-200';
 }
+
+const MODERATION_LABEL_I18N = {
+  pending: 'reports.statusPending',
+  approved: 'reports.statusApproved',
+  rejected: 'reports.statusRejected',
+  auto_approved: 'reports.moderationAutoApproved',
+};
+
+const VALIDATION_LABEL_I18N = {
+  cross_verified: 'reports.validationCrossVerified',
+  not_cross_verified: 'reports.validationNotCrossVerified',
+  unverified: 'reports.validationUnverified',
+};
+
+/** BE đôi khi gửi label trùng key tiếng Anh (approved, cross_verified…) — ưu tiên i18n. */
+function looksLikeRawKey(label, key) {
+  if (!label) return true;
+  const l = String(label).trim().toLowerCase();
+  const k = String(key || '').trim().toLowerCase();
+  if (!k) return /^[a-z][a-z0-9_]*$/.test(l);
+  return l === k || l.replace(/\s+/g, '_') === k;
+}
+
+/** @param {ReturnType<typeof getDisplayModeration>} dm @param {(k: string) => string} t */
+export function resolveModerationLabel(dm, t) {
+  const key = String(dm.key || '').toLowerCase();
+  const i18nKey = MODERATION_LABEL_I18N[key];
+  if (i18nKey) return t(i18nKey);
+  if (dm.label && dm.label !== '—' && !looksLikeRawKey(dm.label, dm.key)) {
+    return dm.label;
+  }
+  return t('reports.statusPending');
+}
+
+/** @param {ReturnType<typeof getDisplayValidation>} dv @param {(k: string) => string} t */
+export function resolveValidationLabel(dv, t) {
+  const key = String(dv.key || '').toLowerCase();
+  const i18nKey = VALIDATION_LABEL_I18N[key];
+  if (i18nKey) return t(i18nKey);
+  if (dv.label && dv.label !== '—' && !looksLikeRawKey(dv.label, dv.key)) {
+    return dv.label;
+  }
+  return t('reports.validationUnknown');
+}
