@@ -40,6 +40,7 @@ import {
 } from '../utils/moderationEvents';
 
 const FLOOD_LEVELS = [FLOOD_FILTER_ALL, ...FLOOD_LEVEL_API_VALUES];
+const REPORTS_PER_PAGE = 25;
 
 /** Chuẩn hóa status từ BE (có thể là status, moderation_status, is_approved, v.v.) */
 function getReportStatus(report) {
@@ -426,6 +427,8 @@ export default function ModerationPage() {
   const [geocodedSearchMap, setGeocodedSearchMap] = useState({});
   const [manualPendingOnly, setManualPendingOnly] = useState(false);
   const [skipProcessing, setSkipProcessing] = useState(null);
+  const [processedPage, setProcessedPage] = useState(1);
+  const [pendingPage, setPendingPage] = useState(1);
 
   const loadReports = useCallback(async () => {
     setLoading(true);
@@ -642,6 +645,32 @@ export default function ModerationPage() {
     return applyFilterAndSort(list);
   }, [reports, applyFilterAndSort]);
 
+  const processedTotalPages = Math.max(1, Math.ceil(processedReports.length / REPORTS_PER_PAGE));
+  const pendingTotalPages = Math.max(1, Math.ceil(displayPendingReports.length / REPORTS_PER_PAGE));
+
+  useEffect(() => {
+    setProcessedPage(1);
+    setPendingPage(1);
+  }, [filterLevel, searchText, sortBy]);
+
+  useEffect(() => {
+    setProcessedPage((prev) => Math.min(prev, processedTotalPages));
+  }, [processedTotalPages]);
+
+  useEffect(() => {
+    setPendingPage((prev) => Math.min(prev, pendingTotalPages));
+  }, [pendingTotalPages]);
+
+  const paginatedProcessedReports = useMemo(() => {
+    const start = (processedPage - 1) * REPORTS_PER_PAGE;
+    return processedReports.slice(start, start + REPORTS_PER_PAGE);
+  }, [processedReports, processedPage]);
+
+  const paginatedDisplayPendingReports = useMemo(() => {
+    const start = (pendingPage - 1) * REPORTS_PER_PAGE;
+    return displayPendingReports.slice(start, start + REPORTS_PER_PAGE);
+  }, [displayPendingReports, pendingPage]);
+
   const handleDropOnProcessed = useCallback(
     (e) => {
       e.preventDefault();
@@ -773,7 +802,7 @@ export default function ModerationPage() {
             ) : (
               <div className="flex-1 overflow-auto">
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {processedReports.map((report) => (
+                  {paginatedProcessedReports.map((report) => (
                     <ProcessedMiniCard
                       key={report.id}
                       report={report}
@@ -783,6 +812,31 @@ export default function ModerationPage() {
                 </div>
                 {processedReports.length === 0 && !loading && (
                   <p className="text-zinc-400 text-center py-8">{t('moderation.processedEmpty')}</p>
+                )}
+                {processedReports.length > 0 && (
+                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-dashboard-border pt-3">
+                    <p className="text-xs text-zinc-500">
+                      Trang {processedPage}/{processedTotalPages} - {processedReports.length} báo cáo
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setProcessedPage((p) => Math.max(1, p - 1))}
+                        disabled={processedPage <= 1}
+                        className="rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-1.5 text-xs text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                      >
+                        Trước
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProcessedPage((p) => Math.min(processedTotalPages, p + 1))}
+                        disabled={processedPage >= processedTotalPages}
+                        className="rounded-lg border border-dashboard-border bg-dashboard-surface px-3 py-1.5 text-xs text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                      >
+                        Sau
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -804,7 +858,7 @@ export default function ModerationPage() {
             ) : displayPendingReports.length === 0 ? (
               <p className="text-zinc-400 text-sm text-center py-6">{t('moderation.pendingEmpty')}</p>
             ) : (
-              displayPendingReports.map((report) => (
+              paginatedDisplayPendingReports.map((report) => (
                 <PendingMiniCard
                   key={report.id}
                   report={report}
@@ -813,6 +867,31 @@ export default function ModerationPage() {
                   setDraggingId={setDraggingId}
                 />
               ))
+            )}
+            {pendingReports.length > 0 && (
+              <div className="mt-2 flex items-center justify-between gap-2 border-t border-dashboard-border pt-3">
+                <p className="text-xs text-zinc-500">
+                  Trang {pendingPage}/{pendingTotalPages}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPendingPage((p) => Math.max(1, p - 1))}
+                    disabled={pendingPage <= 1}
+                    className="rounded-lg border border-dashboard-border bg-dashboard-surface px-2.5 py-1 text-xs text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                  >
+                    Trước
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingPage((p) => Math.min(pendingTotalPages, p + 1))}
+                    disabled={pendingPage >= pendingTotalPages}
+                    className="rounded-lg border border-dashboard-border bg-dashboard-surface px-2.5 py-1 text-xs text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                  >
+                    Sau
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>
